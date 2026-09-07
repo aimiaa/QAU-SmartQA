@@ -9,7 +9,7 @@ import {
   ShieldCheck,
   UsersRound,
 } from 'lucide-vue-next';
-import type { ChatMessage, ChatSession, KnowledgeBase, NavGroup, QuickQuestion } from './types';
+import type { ChatMessage, ChatSession, KnowledgeBase, NavGroup, QuickQuestion } from '../types';
 
 export const navGroups: NavGroup[] = [
   {

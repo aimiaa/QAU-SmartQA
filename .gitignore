@@ -1,0 +1,73 @@
+HELP.md
+target/
+.mvn/wrapper/maven-wrapper.jar
+!**/src/main/**/target/
+!**/src/test/**/target/
+
+### STS ###
+.apt_generated
+.classpath
+.factorypath
+.project
+.settings
+.springBeans
+.sts4-cache
+
+### IntelliJ IDEA ###
+.idea
+*.iws
+*.iml
+*.ipr
+
+### NetBeans ###
+/nbproject/private/
+/nbbuild/
+/dist/
+/nbdist/
+/.nb-gradle/
+build/
+!**/src/main/**/build/
+!**/src/test/**/build/
+
+### VS Code ###
+.vscode/
+
+### Sensitive / Secrets ###
+*.env
+*.env.*
+!.env.example
+.env.local
+.env.prod
+.env.dev
+application-local.yml
+application-local.properties
+application-prod.yml
+application-prod.properties
+*-secret.yml
+*-secret.properties
+
+### Keys & Credentials ###
+*.pem
+*.key
+*.jks
+*.keystore
+*.p12
+*.pfx
+
+### IDE & OS ###
+.DS_Store
+Thumbs.db
+desktop.ini
+
+### Logs ###
+*.log
+logs/
+
+### Docker ###
+docker-compose.override.yml
+
+### Frontend ###
+vue-project/node_modules/
+vue-project/dist/
+vue-project/.env.local
+vue-project/.pnpm-store/

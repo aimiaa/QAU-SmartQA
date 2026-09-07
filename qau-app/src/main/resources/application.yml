@@ -1,0 +1,89 @@
+server:
+  port: 8080
+
+spring:
+  config:
+    import:
+      - optional:file:.env[.properties]
+      - optional:file:../.env[.properties]
+  application:
+    name: qau-app
+
+  # PostgreSQL
+  datasource:
+    url: jdbc:postgresql://${POSTGRES_HOST:localhost}:${POSTGRES_PORT:5433}/${POSTGRES_DB:qau_db}
+    username: ${POSTGRES_USER:postgres}
+    password: ${POSTGRES_PASSWORD:postgres}
+    driver-class-name: org.postgresql.Driver
+
+  # Redis
+  data:
+    redis:
+      host: ${REDIS_HOST:localhost}
+      port: ${REDIS_PORT:16380}
+      password: ${REDIS_PASSWORD:}
+
+  # Flyway
+  flyway:
+    enabled: true
+    locations: classpath:db/migration
+    baseline-on-migrate: true
+
+  # Spring AI - DashScope OpenAI 兼容接口（Spring AI 2.0：属性已扁平化，不要再写 options 层）
+  ai:
+    model:
+      chat: openai
+      embedding: openai
+
+    openai:
+      api-key: ${DASHSCOPE_API_KEY:}
+      base-url: ${DASHSCOPE_BASE_URL:https://dashscope.aliyuncs.com/compatible-mode/v1}
+      chat:
+        model: ${DASHSCOPE_MODEL:qwen3.7-plus}
+        # qwen3.7/3.6/3.5 系列默认开启思考模式，纯问答场景显式关掉省 token
+        extra-body:
+          enable_thinking: false
+      embedding:
+        model: ${DASHSCOPE_EMBEDDING_MODEL:text-embedding-v4}
+        dimensions: ${DASHSCOPE_EMBEDDING_DIMS:1536}
+
+    vectorstore:
+      pgvector:
+        initialize-schema: true
+        index-type: HNSW
+        distance-type: COSINE_DISTANCE
+        dimensions: ${DASHSCOPE_EMBEDDING_DIMS:1536}
+
+# MyBatis-Plus
+mybatis-plus:
+  mapper-locations: classpath:mapper/**/*.xml
+  type-aliases-package: com.aimi.entity
+  configuration:
+    map-underscore-to-camel-case: true
+    log-impl: org.apache.ibatis.logging.stdout.StdOutImpl
+  global-config:
+    db-config:
+      logic-delete-field: deleted
+      logic-delete-value: true
+      logic-not-delete-value: false
+
+# JWT 配置
+jwt:
+  secret: ${JWT_SECRET:qau-smartAI-dev-jwt-secret-key-please-change-in-prod-0123456789}
+  expiration: 7200000
+  header: Authorization
+  token-prefix: "Bearer "
+
+# SpringDoc / Swagger
+springdoc:
+  api-docs:
+    path: /v3/api-docs
+  swagger-ui:
+    path: /swagger-ui.html
+
+# OSS
+oss:
+  endpoint: ${OSS_ENDPOINT:}
+  access-key-id: ${OSS_ACCESS_KEY_ID:}
+  access-key-secret: ${OSS_ACCESS_KEY_SECRET:}
+  bucket-name: ${OSS_BUCKET_NAME:}

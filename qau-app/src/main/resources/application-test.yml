@@ -1,0 +1,15 @@
+spring:
+  config:
+    activate:
+      on-profile: test
+  ai:
+    model:
+      chat: none
+      embedding: none
+    chat:
+      client:
+        enabled: false
+
+logging:
+  level:
+    com.aimi: WARN

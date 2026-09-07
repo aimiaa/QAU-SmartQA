@@ -1,6 +1,6 @@
 <script setup lang="ts">
 import { FileText, Loader2, MessageSquare, Pin, Plus, Send } from 'lucide-vue-next';
-import type { ChatMessage, ChatSession, KnowledgeBase, QuickQuestion } from '../types';
+import type { ChatMessage, ChatSession, KnowledgeBase, QuickQuestion } from '../../types';
 
 defineProps<{
   sessions: ChatSession[];
@@ -15,12 +15,15 @@ defineProps<{
 
 const emit = defineEmits<{
   'select-session': [id: number];
+  'create-session': [];
   'update:input': [value: string];
   submit: [];
   'ask-quick': [question: string];
 }>();
 
 const handleKeydown = (event: KeyboardEvent) => {
+  if (event.isComposing) return;
+
   if (event.key === 'Enter' && !event.shiftKey) {
     event.preventDefault();
     emit('submit');
@@ -36,7 +39,7 @@ const handleKeydown = (event: KeyboardEvent) => {
           <h2>对话历史</h2>
           <span>{{ sessions.length }} 个会话</span>
         </div>
-        <button class="icon-button" type="button" aria-label="新建对话">
+        <button class="icon-button" type="button" aria-label="新建对话" @click="$emit('create-session')">
           <Plus :size="18" />
         </button>
       </div>
@@ -63,10 +66,11 @@ const handleKeydown = (event: KeyboardEvent) => {
       <div class="chat-header">
         <div>
           <h2>{{ activeSession?.title ?? '新对话' }}</h2>
-          <p>{{ selectedKnowledgeBases.length }} 个知识库参与回答</p>
+          <p>自动匹配校内政策、流程和通知知识</p>
         </div>
-        <div class="source-pills">
-          <span v-for="kb in selectedKnowledgeBases.slice(0, 3)" :key="kb.id">{{ kb.name }}</span>
+        <div class="source-pills" aria-label="当前检索范围">
+          <span>RAG 自动路由</span>
+          <span>{{ selectedKnowledgeBases.length }} 个知识库已启用</span>
         </div>
       </div>
 
@@ -110,15 +114,16 @@ const handleKeydown = (event: KeyboardEvent) => {
         </article>
       </div>
 
-      <form class="composer" @submit.prevent="$emit('submit')">
+      <form class="composer" @submit.prevent="emit('submit')">
         <textarea
           :value="input"
+          autofocus
           rows="3"
           placeholder="输入你的问题，例如：如何申请缓考、奖学金材料有哪些、校园卡如何补办..."
-          @input="$emit('update:input', ($event.target as HTMLTextAreaElement).value)"
+          @input="emit('update:input', ($event.target as HTMLTextAreaElement).value)"
           @keydown="handleKeydown"
         />
-        <button class="send-button" type="submit" :disabled="!input.trim() || answering">
+        <button class="send-button" type="button" :disabled="!input.trim() || answering" @click="emit('submit')">
           <Send :size="18" />
           <span>{{ answering ? '生成中' : '发送' }}</span>
         </button>

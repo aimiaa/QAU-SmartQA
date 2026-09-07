@@ -1,6 +1,6 @@
 <script setup lang="ts">
 import { AlertCircle, CheckCircle2, Clock3, Database, FileText, RefreshCw } from 'lucide-vue-next';
-import type { KnowledgeBase } from '../types';
+import type { KnowledgeBase } from '../../types';
 
 defineProps<{
   knowledgeBases: KnowledgeBase[];
@@ -19,11 +19,11 @@ const statusMeta = {
 </script>
 
 <template>
-  <aside class="knowledge-panel panel">
+  <section class="knowledge-panel panel">
     <div class="panel-heading">
       <div>
-        <h2>选择知识库</h2>
-        <span>多选后联合检索</span>
+        <h2>RAG 知识库</h2>
+        <span>在知识库管理中配置检索范围</span>
       </div>
       <Database :size="20" />
     </div>
@@ -58,5 +58,5 @@ const statusMeta = {
         <span class="kb-badge">{{ kb.category }} · {{ statusMeta[kb.status].text }}</span>
       </button>
     </div>
-  </aside>
+  </section>
 </template>
