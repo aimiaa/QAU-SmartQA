@@ -56,16 +56,19 @@ const handleLogout = async () => {
 
     <main class="main-area">
       <header class="topbar">
-        <button class="icon-button mobile-only" type="button" aria-label="打开导航" @click="sidebarOpen = true">
-          <Menu :size="20" />
-        </button>
-        <div class="page-title">
-          <div class="title-icon">
-            <Sparkles :size="22" />
-          </div>
-          <div>
-            <p class="eyebrow">QAU AI CAMPUS ASSISTANT</p>
-            <h1>青岛农业大学智能问答系统</h1>
+        <div class="topbar-left">
+          <button class="icon-button mobile-only" type="button" aria-label="打开导航" @click="sidebarOpen = true">
+            <Menu :size="20" />
+          </button>
+          <div class="page-title">
+            <div class="title-icon">
+              <Sparkles :size="22" />
+            </div>
+            <div>
+              <p class="eyebrow">QAU AI CAMPUS ASSISTANT</p>
+              <h1>青岛农业大学智能问答系统</h1>
+              <p class="page-subtitle">聚合校内知识库、流程指南与政策通知</p>
+            </div>
           </div>
         </div>
 
@@ -100,11 +103,13 @@ const handleLogout = async () => {
         />
       </section>
 
-      <section class="hero-band" aria-label="系统概览">
-        <div class="hero-copy">
+      <section class="overview-strip" aria-label="系统概览">
+        <div class="overview-copy">
           <div class="hero-badge"><Bot :size="16" />校内知识库实时检索</div>
-          <h2>把教务、科研、后勤和招生就业问题集中到一个 AI 问答入口。</h2>
-          <p>面向学生、教师和管理人员，支持多知识库联合检索、来源追踪、连续追问和办事建议。</p>
+          <div>
+            <h2>一处提问，快速定位教务、科研、后勤和就业流程。</h2>
+            <p>支持多知识库联合检索、来源追踪和连续追问，适合师生与管理人员日常办事咨询。</p>
+          </div>
         </div>
         <div class="metric-grid">
           <MetricCard label="已接入知识库" :value="knowledgeBases.length.toString()" detail="覆盖教务、科研、服务" tone="primary" />

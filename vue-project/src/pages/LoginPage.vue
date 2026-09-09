@@ -1,6 +1,6 @@
 <script setup lang="ts">
 import { computed, reactive, ref } from 'vue';
-import { Loader2, LockKeyhole, LogIn, UserRound } from 'lucide-vue-next';
+import { Loader2, LockKeyhole, LogIn, ShieldCheck, Sparkles, UserRound } from 'lucide-vue-next';
 import { useAuth } from '../composables/useAuth';
 
 const { login } = useAuth();
@@ -44,12 +44,15 @@ const handleSubmit = async () => {
           <LockKeyhole :size="20" />
         </div>
         <div>
-          <p class="eyebrow">ADMIN ACCESS</p>
+          <p class="eyebrow">QAU SMARTAI</p>
           <h1>系统登录</h1>
         </div>
       </div>
 
-      <p class="auth-copy">请输入后台账号后进入智能问答系统。</p>
+      <div class="auth-welcome">
+        <span><Sparkles :size="15" />校园知识服务台</span>
+        <p>请输入后台账号后进入智能问答系统。</p>
+      </div>
 
       <form class="auth-form" @submit.prevent="handleSubmit">
         <label class="auth-field">
@@ -75,7 +78,11 @@ const handleSubmit = async () => {
           <span>{{ loading ? '登录中' : '登录' }}</span>
         </button>
       </form>
+
+      <div class="auth-footnote">
+        <ShieldCheck :size="15" />
+        <span>统一身份认证与权限保护</span>
+      </div>
     </section>
   </main>
 </template>
-

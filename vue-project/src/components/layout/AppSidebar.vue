@@ -28,8 +28,9 @@ defineEmits<{
         <Sparkles :size="20" />
       </div>
       <div class="brand-copy">
-        <strong>QAU AI</strong>
-        <span>智能问答系统</span>
+        <span class="brand-kicker">青农 AI 助手</span>
+        <strong>QAU SmartAI</strong>
+        <span>校园知识服务台</span>
       </div>
       <button class="icon-button sidebar-close" type="button" aria-label="关闭导航" @click="$emit('close')">
         <X :size="18" />
@@ -37,8 +38,10 @@ defineEmits<{
     </div>
 
     <button class="sidebar-theme" type="button" @click="$emit('toggle-theme')">
-      <Sun v-if="dark" :size="17" />
-      <Moon v-else :size="17" />
+      <span class="theme-icon">
+        <Sun v-if="dark" :size="17" />
+        <Moon v-else :size="17" />
+      </span>
       <span>{{ dark ? '切换浅色模式' : '切换深色模式' }}</span>
     </button>
 
@@ -50,6 +53,7 @@ defineEmits<{
             class="nav-item"
             :class="{ active: item.id === activeId }"
             type="button"
+            :aria-current="item.id === activeId ? 'page' : undefined"
             @click="$emit('select', item.id)"
           >
             <span class="nav-icon"><component :is="item.icon" :size="20" /></span>
@@ -72,8 +76,9 @@ defineEmits<{
     </nav>
 
     <div class="sidebar-footer">
-      <span>AI Campus v1.0</span>
-      <small>Powered by Vue</small>
+      <span>Campus Knowledge Hub</span>
+      <small>知识库、流程与问答一体化</small>
+      <div class="footer-status"><i aria-hidden="true"></i>系统运行中</div>
       <button class="sidebar-logout" type="button" @click="$emit('logout')">
         <LogOut :size="16" />
         <span>退出登录</span>

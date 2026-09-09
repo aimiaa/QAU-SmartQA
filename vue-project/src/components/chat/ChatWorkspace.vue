@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { FileText, Loader2, MessageSquare, Pin, Plus, Send } from 'lucide-vue-next';
+import { FileText, Loader2, MessageSquare, Pin, Plus, Send, Sparkles } from 'lucide-vue-next';
 import type { ChatMessage, ChatSession, KnowledgeBase, QuickQuestion } from '../../types';
 
 defineProps<{
@@ -36,10 +36,11 @@ const handleKeydown = (event: KeyboardEvent) => {
     <aside class="history-panel panel">
       <div class="panel-heading">
         <div>
+          <span class="panel-kicker">Conversation</span>
           <h2>对话历史</h2>
           <span>{{ sessions.length }} 个会话</span>
         </div>
-        <button class="icon-button" type="button" aria-label="新建对话" @click="$emit('create-session')">
+        <button class="icon-button add-session-button" type="button" aria-label="新建对话" @click="$emit('create-session')">
           <Plus :size="18" />
         </button>
       </div>
@@ -54,27 +55,37 @@ const handleKeydown = (event: KeyboardEvent) => {
           @click="$emit('select-session', session.id)"
         >
           <span class="session-title">
-            <Pin v-if="session.pinned" :size="14" />
-            {{ session.title }}
+            <span class="session-name">
+              <Pin v-if="session.pinned" :size="14" />
+              {{ session.title }}
+            </span>
+            <small>{{ session.scope }}</small>
           </span>
-          <small>{{ session.messageCount }} 条消息 · {{ session.updatedAt }}</small>
+          <span class="session-meta">
+            <span>{{ session.messageCount }} 条消息</span>
+            <span>{{ session.updatedAt }}</span>
+          </span>
         </button>
       </div>
     </aside>
 
     <section class="chat-panel panel" aria-label="问答窗口">
       <div class="chat-header">
-        <div>
-          <h2>{{ activeSession?.title ?? '新对话' }}</h2>
-          <p>自动匹配校内政策、流程和通知知识</p>
+        <div class="chat-title-group">
+          <span class="chat-status-dot" aria-hidden="true"></span>
+          <div>
+            <h2>{{ activeSession?.title ?? '新对话' }}</h2>
+            <p>自动匹配校内政策、流程和通知知识</p>
+          </div>
         </div>
         <div class="source-pills" aria-label="当前检索范围">
-          <span>RAG 自动路由</span>
+          <span class="route-pill">RAG 自动路由</span>
           <span>{{ selectedKnowledgeBases.length }} 个知识库已启用</span>
         </div>
       </div>
 
       <div class="quick-row" aria-label="快捷问题">
+        <span class="quick-label"><Sparkles :size="15" />常用问题</span>
         <button
           v-for="item in quickQuestions"
           :key="item.id"
@@ -97,11 +108,14 @@ const handleKeydown = (event: KeyboardEvent) => {
             <span v-else>我</span>
           </div>
           <div class="message-content">
-            <p>{{ message.content }}</p>
+            <p v-if="message.content">{{ message.content }}</p>
+            <p v-else class="message-empty">正在组织回答...</p>
             <div class="message-meta">
               <span>{{ message.time }}</span>
               <span v-if="message.sources?.length" class="message-sources">
-                <FileText :size="14" />{{ message.sources.join('、') }}
+                <span v-for="source in message.sources" :key="source" class="source-tag">
+                  <FileText :size="13" />{{ source }}
+                </span>
               </span>
             </div>
           </div>
@@ -115,14 +129,16 @@ const handleKeydown = (event: KeyboardEvent) => {
       </div>
 
       <form class="composer" @submit.prevent="emit('submit')">
-        <textarea
-          :value="input"
-          autofocus
-          rows="3"
-          placeholder="输入你的问题，例如：如何申请缓考、奖学金材料有哪些、校园卡如何补办..."
-          @input="emit('update:input', ($event.target as HTMLTextAreaElement).value)"
-          @keydown="handleKeydown"
-        />
+        <div class="composer-input">
+          <textarea
+            :value="input"
+            autofocus
+            rows="3"
+            placeholder="输入你的问题，例如：如何申请缓考、奖学金材料有哪些、校园卡如何补办..."
+            @input="emit('update:input', ($event.target as HTMLTextAreaElement).value)"
+            @keydown="handleKeydown"
+          />
+        </div>
         <button class="send-button" type="button" :disabled="!input.trim() || answering" @click="emit('submit')">
           <Send :size="18" />
           <span>{{ answering ? '生成中' : '发送' }}</span>
