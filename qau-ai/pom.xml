@@ -1,0 +1,32 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<project xmlns="http://maven.apache.org/POM/4.0.0"
+         xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance"
+         xsi:schemaLocation="http://maven.apache.org/POM/4.0.0 https://maven.apache.org/xsd/maven-4.0.0.xsd">
+    <modelVersion>4.0.0</modelVersion>
+
+    <parent>
+        <groupId>com.aimi</groupId>
+        <artifactId>QAU-smartAI</artifactId>
+        <version>0.0.1-SNAPSHOT</version>
+    </parent>
+
+    <artifactId>qau-ai</artifactId>
+    <name>qau-ai</name>
+    <description>AI 能力模块 - 模型调用、Prompt、记忆、RAG、工具和安全护栏</description>
+
+    <dependencies>
+        <dependency>
+            <groupId>com.aimi</groupId>
+            <artifactId>qau-common</artifactId>
+        </dependency>
+        <dependency>
+            <groupId>com.aimi</groupId>
+            <artifactId>qau-domain</artifactId>
+        </dependency>
+        <dependency>
+            <groupId>org.springframework.ai</groupId>
+            <artifactId>spring-ai-starter-model-openai</artifactId>
+        </dependency>
+    </dependencies>
+
+</project>
