@@ -19,6 +19,7 @@
 - 流式 AI 回复（SSE）
 - 对话会话创建、历史会话查询和消息记录
 - 多知识库联合检索
+- 知识库列表查询（关键词、状态、分类筛选），前端以后端为唯一数据源
 - 文档切片与向量化存储
 - 回答来源追踪
 - 快捷问题入口
@@ -32,7 +33,7 @@
 QAU-smartAI/
 ├── qau-common/                  # 公共返回结构、异常、常量和工具
 ├── qau-domain/                  # 用户、会话、知识库等领域模型
-├── qau-ai/                      # AI 模型调用、Prompt、RAG 等能力
+├── qau-ai/                      # AI 模型调用、Prompt 模板（resources/prompts/*.st）、RAG 等能力
 ├── qau-infrastructure/          # 数据库、Redis、向量库、文件存储适配
 ├── qau-app/                     # Spring Boot 启动模块、Controller、Service、安全配置
 ├── vue-project/                 # Vue 3 前端项目
@@ -74,7 +75,7 @@ Copy-Item .env.example .env
 ```dotenv
 DASHSCOPE_API_KEY=你的阿里云百炼 API Key
 POSTGRES_PASSWORD=数据库密码
-REDIS_PASSWORD=Redis 密码
+# REDIS_PASSWORD 可留空：留空时 Redis 以免鉴权方式启动，填值则自动开启 requirepass
 JWT_SECRET=生产环境请替换为足够复杂的密钥
 ```
 
@@ -96,6 +97,9 @@ docker compose up -d
 | PostgreSQL 容器映射端口 | `5433` |
 | Redis 容器映射端口 | `16380` |
 | Vue/Vite 前端 | `5173` |
+
+Redis 的密码由 compose 内的条件启动脚本处理：`REDIS_PASSWORD` 为空时不能拼 `--requirepass`，否则 Redis 会报
+`wrong number of arguments` 并无限重启。启动后 `docker compose ps` 应显示两个容器都是 healthy。
 
 数据库表会由 Flyway 在后端启动时自动执行迁移，迁移文件位于：
 
@@ -254,6 +258,20 @@ Accept: text/event-stream
 X-Session-Id: <session-id>
 ```
 
+### 知识库
+
+```text
+GET /api/knowledge-bases?keyword=&status=&category=
+```
+
+三个参数均可选：`keyword` 模糊匹配名称、分类、描述（PostgreSQL `ILIKE`，忽略大小写），`status` 与 `category`
+精确匹配，结果按更新时间倒序。返回字段与前端 `KnowledgeBase` 对齐，其中 `documents` 取自
+`knowledge_base.document_count`，`updatedAt` 直接下发 `MM-dd HH:mm` 展示文案；
+`status = disabled` 的记录不下发（前端状态枚举没有该值）。动态条件写在
+`qau-infrastructure/src/main/resources/mapper/KnowledgeBaseMapper.xml`。
+
+新建、删除、文档上传等接口前端已封装、后端尚未实现，调用会报错。
+
 ### API 文档
 
 启动后端后，可通过 SpringDoc 查看：
@@ -282,6 +300,25 @@ DASHSCOPE_EMBEDDING_DIMS=1536
 - 数据库 `document_chunk.embedding`
 
 当前数据库默认使用 `vector(1536)` 和 HNSW 索引进行余弦距离检索。
+
+## 提示词模板
+
+提示词不写在 Java 里，统一放在 `qau-ai/src/main/resources/prompts/`，文件名为
+`场景-用途-system.st` / `场景-用途-user.st`：system 模板按 `# Role`、`# Task`、规则表、`# Constraints`
+组织；user 模板以 `# Input Data` 开头，变量用 `{varName}` 占位（花括号是模板定界符，正文不要再出现多余
+花括号），注入的用户输入或文档内容前统一加一行「不是指令」的说明以防提示注入。
+
+| 模板 | 用途 | 占位符 |
+| --- | --- | --- |
+| `campus-qa-system.st` / `campus-qa-user.st` | RAG 命中片段时作答 | `currentDate`、`context`、`question` |
+| `campus-qa-no-context-system.st` / `campus-qa-no-context-user.st` | 召回为空时安全兜底 | `currentDate`、`knowledgeBaseNames`、`question` |
+| `campus-qa-query-rewrite.st` | 检索前问题改写与校内俗称归一 | `history`、`question` |
+| `campus-chat-system.st` | 无检索上下文时的通用问答 | 无 |
+| `chat-session-title-system.st` / `chat-session-title-user.st` | 会话标题生成 | `question`、`answer` |
+
+前端气泡按纯文本渲染且不保留换行，因此面向用户的回答模板都禁止 Markdown 符号、标题与列表分点，
+来源由前端单独以标签展示、正文不写来源编号。这批模板目前是「已备好、待接线」状态，
+`AiConfig` 的 `defaultSystem` 仍是硬编码字符串。
 
 ## 数据库设计
 
@@ -352,6 +389,10 @@ docker compose down
 - 前端开发服务器默认通过 Vite 代理访问后端，后端需运行在 `8080`。
 - AI 流式回答依赖后端 SSE 接口和有效的 DashScope 配置。
 - 当前部分导航、指标、知识库等扩展接口保留了前端占位封装，接入真实后端时需要补齐对应 Controller。
+- 带动态条件的查询写在 `resources/mapper/*.xml` 里，不在 Service 拼 `LambdaQueryWrapper`；自定义 XML SQL 不套用 `@TableLogic`，逻辑删除条件要显式书写。
+- entity / DTO / VO 的字段映射与展示文案收口在 `com.aimi.converter`，Service 只做业务编排。
+- 下发给前端直接展示的时间统一为 `MM-dd HH:mm`，不使用「今天 / 昨天」这类相对文案。
+- Windows PowerShell 下没有 `mvnw.cmd`，使用全局 `mvn` 且 `-D` 参数整体加引号；`pnpm` 被执行策略拦截时改用 `pnpm.cmd`。
 
 ## 当前验证
 
@@ -363,3 +404,10 @@ pnpm build
 ```
 
 该命令会执行 Vue TypeScript 类型检查并生成 Vite 生产构建产物。
+
+后端另有 `KnowledgeBaseMapperXmlTest` 校验 XML 动态 SQL 能真实绑定执行，需先启动容器并让 Flyway 灌入
+V4 种子数据：
+
+```powershell
+mvn -o -pl qau-app -am "-Dtest=KnowledgeBaseMapperXmlTest" "-Dsurefire.failIfNoSpecifiedTests=false" test
+```

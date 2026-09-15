@@ -1,9 +1,10 @@
 import { computed, ref } from 'vue';
 import { knowledgeApi } from '../api/knowledge';
-import { knowledgeBases as fallbackKnowledgeBases } from '../constants/mockData';
 import type { KnowledgeBase, KnowledgeBaseDraft } from '../types';
 
-const STORAGE_KEY = 'qau-smartqa-knowledge-bases';
+// 旧版本把整张知识库表缓存在本地，启动时清掉，避免与后端真实数据混淆。
+const LEGACY_LIST_STORAGE_KEY = 'qau-smartqa-knowledge-bases';
+// 选中的知识库范围后端接口尚未实现，暂时继续存本地。
 const SELECTED_STORAGE_KEY = 'qau-smartqa-selected-knowledge-bases';
 
 const readJson = <T>(key: string): T | null => {
@@ -23,36 +24,46 @@ const writeJson = (key: string, value: unknown) => {
   }
 };
 
-const cachedBases = readJson<KnowledgeBase[]>(STORAGE_KEY);
+const getErrorMessage = (error: unknown) =>
+  error instanceof Error && error.message ? error.message : '请求失败，请稍后重试';
+
+try {
+  localStorage.removeItem(LEGACY_LIST_STORAGE_KEY);
+} catch {
+  // 存储不可用时忽略。
+}
+
 const cachedSelected = readJson<number[]>(SELECTED_STORAGE_KEY);
 
-const defaultBases = cachedBases?.length ? cachedBases : fallbackKnowledgeBases.map((item) => ({ ...item }));
-
 // 模块级状态：侧边栏、问答页与知识库管理页共享同一份数据。
-const knowledgeBases = ref<KnowledgeBase[]>(defaultBases);
-const selectedKbIds = ref<number[]>(
-  cachedSelected ?? defaultBases.filter((item) => item.status === 'ready').map((item) => item.id),
-);
+const knowledgeBases = ref<KnowledgeBase[]>([]);
+const selectedKbIds = ref<number[]>(Array.isArray(cachedSelected) ? cachedSelected : []);
 const loading = ref(false);
 const saving = ref(false);
 const errorMessage = ref('');
 const notice = ref('');
 const loadedFromServer = ref(false);
 
-const formatToday = () =>
-  `今天 ${new Date().toLocaleTimeString('zh-CN', { hour: '2-digit', minute: '2-digit' })}`;
+const padTime = (value: number) => String(value).padStart(2, '0');
 
-const nextLocalId = () =>
-  knowledgeBases.value.reduce((max, item) => Math.max(max, item.id), 0) + 1;
-
-const persist = () => {
-  writeJson(STORAGE_KEY, knowledgeBases.value);
-  writeJson(SELECTED_STORAGE_KEY, selectedKbIds.value);
+/** 上传后的乐观更新文案，格式与后端 updatedAt 保持一致：MM-dd HH:mm。 */
+const formatNow = () => {
+  const now = new Date();
+  return `${padTime(now.getMonth() + 1)}-${padTime(now.getDate())} ${padTime(now.getHours())}:${padTime(now.getMinutes())}`;
 };
+
+const persistSelection = () => writeJson(SELECTED_STORAGE_KEY, selectedKbIds.value);
 
 const pruneSelection = () => {
   const ids = new Set(knowledgeBases.value.map((item) => item.id));
   selectedKbIds.value = selectedKbIds.value.filter((id) => ids.has(id));
+};
+
+/** 首次拿到数据时默认启用全部可用知识库，保证问答页开箱就有检索范围。 */
+const selectReadyBases = () => {
+  selectedKbIds.value = knowledgeBases.value
+    .filter((item) => item.status === 'ready')
+    .map((item) => item.id);
 };
 
 export const useKnowledgeBases = () => {
@@ -77,7 +88,7 @@ export const useKnowledgeBases = () => {
     notice.value = '';
   };
 
-  /** 拉取知识库列表；后端不可用时保留本地数据，保证界面可用。 */
+  /** 拉取知识库列表：后端是唯一数据源，失败时给出提示而不是回落假数据。 */
   const loadKnowledgeBases = async (force = false) => {
     if (loading.value || (loadedFromServer.value && !force)) return;
 
@@ -85,21 +96,25 @@ export const useKnowledgeBases = () => {
 
     try {
       const list = await knowledgeApi.getKnowledgeBases();
+      knowledgeBases.value = list ?? [];
+      loadedFromServer.value = true;
+      pruneSelection();
 
-      if (list?.length) {
-        knowledgeBases.value = list;
-        loadedFromServer.value = true;
-        pruneSelection();
-        persist();
+      if (!selectedKbIds.value.length) {
+        selectReadyBases();
       }
-    } catch {
-      // 后端未就绪时使用本地演示数据。
+
+      persistSelection();
+      resetFeedback();
+    } catch (error) {
+      knowledgeBases.value = [];
+      errorMessage.value = `知识库列表加载失败：${getErrorMessage(error)}`;
     } finally {
       loading.value = false;
     }
   };
 
-  /** 新建知识库：优先调用后端，失败时在本地创建，便于前端独立联调。 */
+  /** 新建知识库：只有后端创建成功才写入本地状态，失败时如实提示。 */
   const createKnowledgeBase = async (draft: KnowledgeBaseDraft) => {
     const name = draft.name.trim();
 
@@ -122,30 +137,23 @@ export const useKnowledgeBases = () => {
       description: draft.description.trim() || '暂无描述，可在创建后上传文档并补充说明。',
     };
 
-    let created: KnowledgeBase;
-
     try {
-      created = await knowledgeApi.createKnowledgeBase(payload);
-    } catch {
-      created = {
-        id: nextLocalId(),
-        documents: 0,
-        status: 'building',
-        updatedAt: '待上传',
-        ...payload,
-      };
+      const created = await knowledgeApi.createKnowledgeBase(payload);
+      knowledgeBases.value = [created, ...knowledgeBases.value];
+
+      if (created.status === 'ready') {
+        selectedKbIds.value = [...selectedKbIds.value, created.id];
+        persistSelection();
+      }
+
+      notice.value = `知识库「${created.name}」已创建，请继续上传文档`;
+      return true;
+    } catch (error) {
+      errorMessage.value = `知识库创建失败：${getErrorMessage(error)}`;
+      return false;
+    } finally {
+      saving.value = false;
     }
-
-    knowledgeBases.value = [created, ...knowledgeBases.value];
-
-    if (created.status === 'ready') {
-      selectedKbIds.value = [...selectedKbIds.value, created.id];
-    }
-
-    persist();
-    saving.value = false;
-    notice.value = `知识库「${created.name}」已创建，请继续上传文档`;
-    return true;
   };
 
   /** 文档上传成功后乐观更新文档数；最终状态以后端刷新结果为准。 */
@@ -158,13 +166,11 @@ export const useKnowledgeBases = () => {
       ...current,
       documents: current.documents + count,
       status: 'syncing',
-      updatedAt: formatToday(),
+      updatedAt: formatNow(),
     });
-
-    persist();
   };
 
-  /** 删除知识库：后端失败时也移除本地记录，避免界面与操作不一致。 */
+  /** 删除知识库：后端删除失败时保留记录，避免界面与数据库不一致。 */
   const removeKnowledgeBase = async (id: number) => {
     const target = knowledgeBases.value.find((item) => item.id === id);
     if (!target) return false;
@@ -174,33 +180,34 @@ export const useKnowledgeBases = () => {
 
     try {
       await knowledgeApi.deleteKnowledgeBase(id);
-    } catch {
-      // 后端未就绪时仅在本地删除。
+      knowledgeBases.value = knowledgeBases.value.filter((item) => item.id !== id);
+      pruneSelection();
+      persistSelection();
+      notice.value = `知识库「${target.name}」已删除`;
+      return true;
+    } catch (error) {
+      errorMessage.value = `知识库删除失败：${getErrorMessage(error)}`;
+      return false;
+    } finally {
+      saving.value = false;
     }
-
-    knowledgeBases.value = knowledgeBases.value.filter((item) => item.id !== id);
-    pruneSelection();
-    persist();
-    saving.value = false;
-    notice.value = `知识库「${target.name}」已删除`;
-    return true;
   };
 
   const toggleKnowledgeBase = (id: number) => {
     selectedKbIds.value = selectedKbIds.value.includes(id)
       ? selectedKbIds.value.filter((item) => item !== id)
       : [...selectedKbIds.value, id];
-    persist();
+    persistSelection();
   };
 
   const selectAllKnowledgeBases = () => {
     selectedKbIds.value = knowledgeBases.value.map((item) => item.id);
-    persist();
+    persistSelection();
   };
 
   const clearSelectedKnowledgeBases = () => {
     selectedKbIds.value = [];
-    persist();
+    persistSelection();
   };
 
   return {

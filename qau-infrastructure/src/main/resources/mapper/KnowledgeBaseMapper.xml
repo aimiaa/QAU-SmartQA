@@ -1,0 +1,50 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE mapper PUBLIC "-//mybatis.org//DTD Mapper 3.0//EN"
+        "https://mybatis.org/dtd/mybatis-3-mapper.dtd">
+<mapper namespace="com.aimi.mapper.KnowledgeBaseMapper">
+
+  <!-- knowledge_base 列表所需列，不含向量等大字段；新增字段时只改这一处 -->
+  <sql id="baseColumns">
+    id,
+    name,
+    category,
+    status,
+    description,
+    document_count,
+    owner_department,
+    last_synced_at,
+    created_by,
+    created_at,
+    updated_at
+  </sql>
+
+  <!--
+    知识库列表查询。
+    注意：自定义 SQL 不会套用 @TableLogic，deleted 条件必须显式书写。
+    关键词命中名称、分类、描述任一字段即可，PostgreSQL 用 ILIKE 忽略大小写。
+  -->
+  <select id="selectKnowledgeBaseList" resultType="com.aimi.entity.KnowledgeBaseEntity">
+    select
+    <include refid="baseColumns"/>
+    from knowledge_base
+    where deleted = false
+    <if test="excludeStatus != null and excludeStatus != ''">
+      and status &lt;&gt; #{excludeStatus}
+    </if>
+    <if test="status != null and status != ''">
+      and status = #{status}
+    </if>
+    <if test="category != null and category != ''">
+      and category = #{category}
+    </if>
+    <if test="keyword != null and keyword != ''">
+      and (
+      name ilike concat('%', #{keyword}, '%')
+      or category ilike concat('%', #{keyword}, '%')
+      or description ilike concat('%', #{keyword}, '%')
+      )
+    </if>
+    order by updated_at desc, id asc
+  </select>
+
+</mapper>

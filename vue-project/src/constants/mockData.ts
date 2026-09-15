@@ -9,7 +9,7 @@ import {
   ShieldCheck,
   UsersRound,
 } from 'lucide-vue-next';
-import type { ChatMessage, ChatSession, KnowledgeBase, NavGroup, QuickQuestion } from '../types';
+import type { ChatMessage, ChatSession, NavGroup, QuickQuestion } from '../types';
 
 export const navGroups: NavGroup[] = [
   {
@@ -38,54 +38,6 @@ export const navGroups: NavGroup[] = [
       { id: 'security', label: '权限审计', description: '访问范围与数据安全', icon: ShieldCheck },
       { id: 'settings', label: '系统设置', description: '模型、语音与接口', icon: Settings },
     ],
-  },
-];
-
-export const knowledgeBases: KnowledgeBase[] = [
-  {
-    id: 1,
-    name: '本科教学管理制度',
-    category: '教务',
-    status: 'ready',
-    documents: 86,
-    updatedAt: '今天 09:18',
-    description: '培养方案、学籍异动、选课退课、考试安排、成绩复核。',
-  },
-  {
-    id: 2,
-    name: '研究生培养与学位',
-    category: '研究生院',
-    status: 'ready',
-    documents: 52,
-    updatedAt: '昨天 18:40',
-    description: '开题、中期、论文送审、答辩流程和学位申请材料。',
-  },
-  {
-    id: 3,
-    name: '智慧校园办事指南',
-    category: '综合服务',
-    status: 'syncing',
-    documents: 123,
-    updatedAt: '同步中',
-    description: '一卡通、宿舍、网络、图书馆、场馆预约与后勤报修。',
-  },
-  {
-    id: 4,
-    name: '招生就业政策库',
-    category: '招生就业',
-    status: 'ready',
-    documents: 41,
-    updatedAt: '周一 14:06',
-    description: '本科招生、转专业、就业派遣、实习协议和双选会。',
-  },
-  {
-    id: 5,
-    name: '科研项目与经费',
-    category: '科研',
-    status: 'review',
-    documents: 34,
-    updatedAt: '待复核',
-    description: '项目申报、经费报销、成果登记、实验室安全规范。',
   },
 ];
 

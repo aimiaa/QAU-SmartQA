@@ -10,9 +10,13 @@ import lombok.Data;
 @Data
 @TableName("chat_session_knowledge_base")
 public class ChatSessionKnowledgeBaseEntity {
+    // 主键 ID
     @TableId(type = IdType.AUTO)
     private Long id;
+    // 会话 ID
     private Long sessionId;
+    // 知识库 ID
     private Long knowledgeBaseId;
+    // 创建时间
     private LocalDateTime createdAt;
 }
