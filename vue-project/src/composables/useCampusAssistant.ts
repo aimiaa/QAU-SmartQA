@@ -3,23 +3,30 @@ import { chatApi } from '../api/chat';
 import {
   chatSessions as fallbackChatSessions,
   initialMessages as fallbackMessages,
-  knowledgeBases,
   navGroups,
   quickQuestions as fallbackQuickQuestions,
 } from '../constants/mockData';
 import type { ChatMessage, ChatSession, QuickQuestion } from '../types';
 import { formatNow } from '../utils/date';
+import { useKnowledgeBases } from './useKnowledgeBases';
 
 const getErrorMessage = (error: unknown) =>
   error instanceof Error ? error.message : '请求失败，请稍后重试';
 
 export const useCampusAssistant = () => {
+  const {
+    documentCount,
+    knowledgeBases,
+    loadKnowledgeBases,
+    readyCount,
+    selectedKbIds,
+    selectedKnowledgeBases,
+    toggleKnowledgeBase,
+  } = useKnowledgeBases();
+
   const activeNav = ref('assistant');
   const isDark = ref(document.documentElement.classList.contains('dark'));
   const sidebarOpen = ref(false);
-  const selectedKbIds = ref<number[]>(
-    knowledgeBases.filter((item) => item.status === 'ready').map((item) => item.id),
-  );
   const activeSessionId = ref(1);
   const input = ref('');
   const isAnswering = ref(false);
@@ -27,15 +34,12 @@ export const useCampusAssistant = () => {
   const messages = ref<ChatMessage[]>([...fallbackMessages]);
   const quickQuestions = ref<QuickQuestion[]>([...fallbackQuickQuestions]);
 
-  const selectedKnowledgeBases = computed(() =>
-    knowledgeBases.filter((item) => selectedKbIds.value.includes(item.id)),
-  );
-
   const activeSession = computed<ChatSession | undefined>(() =>
     chatSessions.value.find((session) => session.id === activeSessionId.value),
   );
 
-  const readyCount = computed(() => knowledgeBases.filter((item) => item.status === 'ready').length);
+  // 知识库管理是独立页面，其余菜单仍在问答工作台内展示。
+  const isKnowledgePage = computed(() => activeNav.value === 'kb');
 
   const mapSession = (session: ChatSession): ChatSession => ({
     ...session,
@@ -57,15 +61,11 @@ export const useCampusAssistant = () => {
 
   const selectNavigation = (id: string) => {
     activeNav.value = id;
-    if (id !== 'kb') {
-      sidebarOpen.value = false;
-    }
+    sidebarOpen.value = false;
   };
 
-  const toggleKnowledgeBase = (id: number) => {
-    selectedKbIds.value = selectedKbIds.value.includes(id)
-      ? selectedKbIds.value.filter((item) => item !== id)
-      : [...selectedKbIds.value, id];
+  const backToAssistant = () => {
+    activeNav.value = 'assistant';
   };
 
   const upsertSession = (session: ChatSession) => {
@@ -204,6 +204,7 @@ export const useCampusAssistant = () => {
 
   onMounted(() => {
     void loadSessions();
+    void loadKnowledgeBases();
   });
 
   return {
@@ -211,11 +212,14 @@ export const useCampusAssistant = () => {
     activeSession,
     activeSessionId,
     askQuickQuestion,
+    backToAssistant,
     chatSessions,
     createSession,
+    documentCount,
     input,
     isAnswering,
     isDark,
+    isKnowledgePage,
     knowledgeBases,
     messages,
     navGroups,

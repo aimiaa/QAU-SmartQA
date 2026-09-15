@@ -1,20 +1,16 @@
 <script setup lang="ts">
 import { ChevronRight, LogOut, Moon, Sparkles, Sun, X } from 'lucide-vue-next';
-import KnowledgePanel from '../knowledge/KnowledgePanel.vue';
-import type { KnowledgeBase, NavGroup } from '../../types';
+import type { NavGroup } from '../../types';
 
 defineProps<{
   groups: NavGroup[];
   activeId: string;
   open: boolean;
   dark: boolean;
-  knowledgeBases: KnowledgeBase[];
-  selectedIds: number[];
 }>();
 
 defineEmits<{
   select: [id: string];
-  'toggle-knowledge-base': [id: number];
   'toggle-theme': [];
   logout: [];
   close: [];
@@ -48,30 +44,22 @@ defineEmits<{
     <nav class="sidebar-nav" aria-label="主导航">
       <section v-for="group in groups" :key="group.id" class="nav-group">
         <p>{{ group.title }}</p>
-        <template v-for="item in group.items" :key="item.id">
-          <button
-            class="nav-item"
-            :class="{ active: item.id === activeId }"
-            type="button"
-            :aria-current="item.id === activeId ? 'page' : undefined"
-            @click="$emit('select', item.id)"
-          >
-            <span class="nav-icon"><component :is="item.icon" :size="20" /></span>
-            <span class="nav-text">
-              <strong>{{ item.label }}</strong>
-              <small>{{ item.description }}</small>
-            </span>
-            <ChevronRight v-if="item.id === activeId" class="nav-arrow" :size="17" />
-          </button>
-
-          <KnowledgePanel
-            v-if="item.id === 'kb' && item.id === activeId"
-            class="sidebar-knowledge-panel"
-            :knowledge-bases="knowledgeBases"
-            :selected-ids="selectedIds"
-            @toggle="$emit('toggle-knowledge-base', $event)"
-          />
-        </template>
+        <button
+          v-for="item in group.items"
+          :key="item.id"
+          class="nav-item"
+          :class="{ active: item.id === activeId }"
+          type="button"
+          :aria-current="item.id === activeId ? 'page' : undefined"
+          @click="$emit('select', item.id)"
+        >
+          <span class="nav-icon"><component :is="item.icon" :size="20" /></span>
+          <span class="nav-text">
+            <strong>{{ item.label }}</strong>
+            <small>{{ item.description }}</small>
+          </span>
+          <ChevronRight v-if="item.id === activeId" class="nav-arrow" :size="17" />
+        </button>
       </section>
     </nav>
 

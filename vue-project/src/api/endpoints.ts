@@ -17,8 +17,25 @@ export const API_ENDPOINTS = {
   // 保存当前用户选中的知识库范围，用于多知识库联合检索。
   selectedKnowledgeBases: '/api/knowledge-bases/selected',
 
+  // 新建 RAG 知识库。
+  createKnowledgeBase: '/api/knowledge-bases',
+
+  // 更新指定知识库的基本信息。
+  updateKnowledgeBase: (id: number | string) => `/api/knowledge-bases/${id}`,
+
+  // 删除指定知识库。
+  deleteKnowledgeBase: (id: number | string) => `/api/knowledge-bases/${id}`,
+
   // 触发指定知识库同步或重新向量化。
   syncKnowledgeBase: (id: number | string) => `/api/knowledge-bases/${id}/sync`,
+
+  // 获取指定知识库下的文档列表。
+  knowledgeDocuments: (knowledgeBaseId: number | string) =>
+    `/api/knowledge-bases/${knowledgeBaseId}/documents`,
+
+  // 管理指定知识库中的某一份文档。
+  knowledgeDocument: (knowledgeBaseId: number | string, documentId: number | string) =>
+    `/api/knowledge-bases/${knowledgeBaseId}/documents/${documentId}`,
 
   // 获取对话历史列表，用于左侧“对话历史”面板。
   chatSessions: '/api/chat/sessions',
@@ -43,3 +60,4 @@ export const API_ENDPOINTS = {
 } as const;
 
 export const LONG_REQUEST_TIMEOUT = 180_000;
+

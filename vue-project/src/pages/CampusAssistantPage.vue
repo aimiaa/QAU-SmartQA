@@ -1,6 +1,7 @@
 <script setup lang="ts">
 import { Bot, Menu, Moon, Search, Sparkles, Sun, X } from 'lucide-vue-next';
 import ChatWorkspace from '../components/chat/ChatWorkspace.vue';
+import KnowledgeBaseManager from '../components/knowledge/KnowledgeBaseManager.vue';
 import AppSidebar from '../components/layout/AppSidebar.vue';
 import MetricCard from '../components/metrics/MetricCard.vue';
 import { useAuth } from '../composables/useAuth';
@@ -11,23 +12,24 @@ const {
   activeSession,
   activeSessionId,
   askQuickQuestion,
+  backToAssistant,
   chatSessions,
   createSession,
+  documentCount,
   input,
   isAnswering,
   isDark,
+  isKnowledgePage,
   knowledgeBases,
   messages,
   navGroups,
   quickQuestions,
   readyCount,
-  selectedKbIds,
   selectedKnowledgeBases,
   selectNavigation,
   selectSession,
   sidebarOpen,
   submitQuestion,
-  toggleKnowledgeBase,
   toggleTheme,
 } = useCampusAssistant();
 
@@ -45,10 +47,7 @@ const handleLogout = async () => {
       :active-id="activeNav"
       :open="sidebarOpen"
       :dark="isDark"
-      :knowledge-bases="knowledgeBases"
-      :selected-ids="selectedKbIds"
       @select="selectNavigation"
-      @toggle-knowledge-base="toggleKnowledgeBase"
       @toggle-theme="toggleTheme"
       @logout="handleLogout"
       @close="sidebarOpen = false"
@@ -67,7 +66,9 @@ const handleLogout = async () => {
             <div>
               <p class="eyebrow">QAU AI CAMPUS ASSISTANT</p>
               <h1>青岛农业大学智能问答系统</h1>
-              <p class="page-subtitle">聚合校内知识库、流程指南与政策通知</p>
+              <p class="page-subtitle">
+                {{ isKnowledgePage ? '管理 RAG 知识库与检索范围' : '聚合校内知识库、流程指南与政策通知' }}
+              </p>
             </div>
           </div>
         </div>
@@ -85,38 +86,47 @@ const handleLogout = async () => {
         </div>
       </header>
 
-      <section class="workspace-grid" aria-label="智能问答工作台">
-        <ChatWorkspace
-          :sessions="chatSessions"
-          :active-session-id="activeSessionId"
-          :active-session="activeSession"
-          :messages="messages"
-          :quick-questions="quickQuestions"
-          :selected-knowledge-bases="selectedKnowledgeBases"
-          :input="input"
-          :answering="isAnswering"
-          @select-session="selectSession"
-          @create-session="createSession"
-          @update:input="input = $event"
-          @submit="submitQuestion"
-          @ask-quick="askQuickQuestion"
-        />
-      </section>
+      <KnowledgeBaseManager v-if="isKnowledgePage" @back="backToAssistant" />
 
-      <section class="overview-strip" aria-label="系统概览">
-        <div class="overview-copy">
-          <div class="hero-badge"><Bot :size="16" />校内知识库实时检索</div>
-          <div>
-            <h2>一处提问，快速定位教务、科研、后勤和就业流程。</h2>
-            <p>支持多知识库联合检索、来源追踪和连续追问，适合师生与管理人员日常办事咨询。</p>
+      <template v-else>
+        <section class="workspace-grid" aria-label="智能问答工作台">
+          <ChatWorkspace
+            :sessions="chatSessions"
+            :active-session-id="activeSessionId"
+            :active-session="activeSession"
+            :messages="messages"
+            :quick-questions="quickQuestions"
+            :selected-knowledge-bases="selectedKnowledgeBases"
+            :input="input"
+            :answering="isAnswering"
+            @select-session="selectSession"
+            @create-session="createSession"
+            @update:input="input = $event"
+            @submit="submitQuestion"
+            @ask-quick="askQuickQuestion"
+          />
+        </section>
+
+        <section class="overview-strip" aria-label="系统概览">
+          <div class="overview-copy">
+            <div class="hero-badge"><Bot :size="16" />校内知识库实时检索</div>
+            <div>
+              <h2>一处提问，快速定位教务、科研、后勤和就业流程。</h2>
+              <p>支持多知识库联合检索、来源追踪和连续追问，适合师生与管理人员日常办事咨询。</p>
+            </div>
           </div>
-        </div>
-        <div class="metric-grid">
-          <MetricCard label="已接入知识库" :value="knowledgeBases.length.toString()" detail="覆盖教务、科研、服务" tone="primary" />
-          <MetricCard label="可检索文档" value="336" detail="制度、指南、通知" tone="green" />
-          <MetricCard label="可用知识库" :value="readyCount.toString()" detail="当前可参与回答" tone="orange" />
-        </div>
-      </section>
+          <div class="metric-grid">
+            <MetricCard
+              label="已接入知识库"
+              :value="knowledgeBases.length.toString()"
+              detail="覆盖教务、科研、服务"
+              tone="primary"
+            />
+            <MetricCard label="可检索文档" :value="documentCount.toString()" detail="制度、指南、通知" tone="green" />
+            <MetricCard label="可用知识库" :value="readyCount.toString()" detail="当前可参与回答" tone="orange" />
+          </div>
+        </section>
+      </template>
     </main>
 
     <button v-if="sidebarOpen" class="scrim" type="button" aria-label="关闭导航" @click="sidebarOpen = false">

@@ -12,7 +12,7 @@ public class AiConfig {
     @Bean
     public ChatClient chatClient(ChatClient.Builder builder) {
         return builder
-                .defaultSystem("你是一个智能问答助手，负责根据知识库内容回答用户的问题。请用简洁、准确的语言回答。")
+                .defaultSystem("你是一个智能问答助手，负责根据知识库内容回答用户的问题。请用简洁、准确的语言回答。禁止使用任何 Markdown 格式符号（如 **、#、-、`、> 等），只输出纯文本。")
                 .build();
     }
 }

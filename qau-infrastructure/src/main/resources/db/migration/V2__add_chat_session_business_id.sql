@@ -12,3 +12,4 @@ CREATE UNIQUE INDEX IF NOT EXISTS idx_chat_session_session_id
   ON chat_session(session_id);
 
 COMMENT ON COLUMN chat_session.session_id IS '前端 localStorage 生成并通过 X-Session-Id 传入的业务会话标识';
+

@@ -35,11 +35,18 @@ service.interceptors.request.use((config: InternalAxiosRequestConfig) => {
   // 如后端需要登录鉴权，可把 token 存到 localStorage，所有请求会自动携带。
   const token = getAuthToken();
 
+  const headers = AxiosHeaders.from(config.headers);
+
   if (token) {
-    const headers = AxiosHeaders.from(config.headers);
     headers.set('Authorization', `Bearer ${token}`);
-    config.headers = headers;
   }
+
+  // FormData 必须由浏览器自动生成带 boundary 的 multipart 请求头。
+  if (config.data instanceof FormData) {
+    headers.delete('Content-Type');
+  }
+
+  config.headers = headers;
 
   return config;
 });
@@ -115,3 +122,4 @@ export const http = {
 export const request = http;
 
 export default service;
+
