@@ -1,5 +1,6 @@
 package com.aimi.service;
 
+import com.aimi.dto.knowledge.KnowledgeBaseDTO;
 import com.aimi.dto.knowledge.KnowledgeBaseQueryDTO;
 import com.aimi.vo.knowledge.KnowledgeBaseVO;
 import java.util.List;
@@ -13,4 +14,12 @@ public interface KnowledgeService {
      * @return 知识库列表，按更新时间倒序
      */
     List<KnowledgeBaseVO> listKnowledgeBases(KnowledgeBaseQueryDTO query);
+
+    /**
+     * 新建知识库，只创建基础信息，文档通过上传接口单独加入。
+     *
+     * @param dto 前端新建入参
+     * @return 创建后的知识库 VO
+     */
+    KnowledgeBaseVO createKnowledgeBase(KnowledgeBaseDTO dto);
 }

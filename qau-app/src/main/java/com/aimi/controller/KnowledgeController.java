@@ -1,5 +1,6 @@
 package com.aimi.controller;
 
+import com.aimi.dto.knowledge.KnowledgeBaseDTO;
 import com.aimi.dto.knowledge.KnowledgeBaseQueryDTO;
 import com.aimi.result.Result;
 import com.aimi.service.KnowledgeService;
@@ -8,10 +9,7 @@ import io.swagger.v3.oas.annotations.Operation;
 import io.swagger.v3.oas.annotations.tags.Tag;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
-import org.springframework.web.bind.annotation.GetMapping;
-import org.springframework.web.bind.annotation.RequestMapping;
-import org.springframework.web.bind.annotation.RequestParam;
-import org.springframework.web.bind.annotation.RestController;
+import org.springframework.web.bind.annotation.*;
 
 import java.util.List;
 
@@ -41,5 +39,16 @@ public class KnowledgeController {
         return Result.success(
                 knowledgeService.listKnowledgeBases(new KnowledgeBaseQueryDTO(keyword, status, category))
         );
+    }
+
+    /**
+     * 创建一个新的知识库。
+     * @param dto 知识库DTO
+     * @return 创建结果
+     */
+    @Operation(summary = "创建一个新的知识库")
+    @PostMapping
+    public Result<KnowledgeBaseVO> createKnowledgeBase(@RequestBody KnowledgeBaseDTO dto) {
+        return Result.success(knowledgeService.createKnowledgeBase(dto));
     }
 }

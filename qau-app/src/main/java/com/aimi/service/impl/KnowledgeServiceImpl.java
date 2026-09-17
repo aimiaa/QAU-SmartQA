@@ -1,8 +1,11 @@
 package com.aimi.service.impl;
 
 import com.aimi.converter.KnowledgeBaseConverter;
+import com.aimi.dto.knowledge.KnowledgeBaseDTO;
 import com.aimi.dto.knowledge.KnowledgeBaseQueryDTO;
+import com.aimi.entity.KnowledgeBaseEntity;
 import com.aimi.mapper.KnowledgeBaseMapper;
+import com.aimi.security.UserContext;
 import com.aimi.service.KnowledgeService;
 import com.aimi.vo.knowledge.KnowledgeBaseVO;
 import lombok.RequiredArgsConstructor;
@@ -38,4 +41,17 @@ public class KnowledgeServiceImpl implements KnowledgeService {
         return result;
     }
 
+    @Override
+    @Transactional
+    public KnowledgeBaseVO createKnowledgeBase(KnowledgeBaseDTO dto) {
+        Long userId = UserContext.requireUserId();
+
+        KnowledgeBaseEntity entity = knowledgeBaseConverter.toCreateEntity(dto, userId);
+        // id 由数据库自增回填（IdType.AUTO），时间字段交给 DB 默认值与触发器维护
+        knowledgeBaseMapper.insert(entity);
+
+        // 回查以拿到 DB 生成的 created_at / updated_at，避免返回值里时间显示"暂无更新"
+        KnowledgeBaseEntity saved = knowledgeBaseMapper.selectById(entity.getId());
+        return knowledgeBaseConverter.toVO(saved);
+    }
 }
