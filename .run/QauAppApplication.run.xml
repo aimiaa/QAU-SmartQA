@@ -1,0 +1,17 @@
+<component name="ProjectRunConfigurationManager">
+  <configuration default="false" name="QauAppApplication" type="SpringBootApplicationConfigurationType" factoryName="Spring Boot">
+    <option name="FRAME_DEACTIVATION_UPDATE_POLICY" value="UnknownPolicyInFreeMode" />
+    <module name="qau-app" />
+    <option name="SPRING_BOOT_MAIN_CLASS" value="com.aimi.QauAppApplication" />
+    <shortenClasspath name="ARGS_FILE" />
+    <extension name="coverage">
+      <pattern>
+        <option name="PATTERN" value="com.aimi.*" />
+        <option name="ENABLED" value="true" />
+      </pattern>
+    </extension>
+    <method v="2">
+      <option name="Make" enabled="true" />
+    </method>
+  </configuration>
+</component>
