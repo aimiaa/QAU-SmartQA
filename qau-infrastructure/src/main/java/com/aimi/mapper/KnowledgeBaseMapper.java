@@ -5,6 +5,7 @@ import com.baomidou.mybatisplus.core.mapper.BaseMapper;
 import java.util.List;
 import org.apache.ibatis.annotations.Mapper;
 import org.apache.ibatis.annotations.Param;
+import org.apache.ibatis.annotations.Update;
 
 @Mapper
 public interface KnowledgeBaseMapper extends BaseMapper<KnowledgeBaseEntity> {
@@ -23,4 +24,19 @@ public interface KnowledgeBaseMapper extends BaseMapper<KnowledgeBaseEntity> {
                                                       @Param("status") String status,
                                                       @Param("category") String category,
                                                       @Param("excludeStatus") String excludeStatus);
+
+    /** 文档数原子自增，避免"读-改-写"并发丢失。 */
+    @Update("UPDATE knowledge_base SET document_count = document_count + 1 WHERE id = #{kbId} AND deleted = FALSE")
+    int increaseDocumentCount(@Param("kbId") Long kbId);
+
+    /**
+     * 上传文档时同步知识库状态：置为 syncing 并原子自增文档数，
+     * 避免“读-改-写”在并发上传时丢失计数。
+     */
+    @Update("""
+            UPDATE knowledge_base
+            SET status = 'syncing', document_count = document_count + 1
+            WHERE id = #{kbId} AND deleted = FALSE
+            """)
+    int markSyncingAndIncreaseDocumentCount(@Param("kbId") Long kbId);
 }

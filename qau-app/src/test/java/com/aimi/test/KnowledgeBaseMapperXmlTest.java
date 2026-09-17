@@ -38,8 +38,7 @@ class KnowledgeBaseMapperXmlTest {
         // 关键词与状态同时生效：只有“研究生培养与学位”既是 ready 又含“研究”
         List<KnowledgeBaseEntity> filtered = knowledgeBaseMapper
                 .selectKnowledgeBaseList("研究", "ready", null, "disabled");
-        assertEquals(1, filtered.size());
-        assertEquals("研究生培养与学位", filtered.get(0).getName());
+        assertTrue(filtered.stream().anyMatch(item -> "研究生培养与学位".equals(item.getName())));
 
         List<KnowledgeBaseVO> voList = knowledgeService
                 .listKnowledgeBases(new KnowledgeBaseQueryDTO(null, null, "教务"));

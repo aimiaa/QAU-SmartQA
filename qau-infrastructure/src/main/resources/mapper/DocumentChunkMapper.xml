@@ -1,0 +1,19 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE mapper PUBLIC "-//mybatis.org//DTD Mapper 3.0//EN"
+        "http://mybatis.org/dtd/mybatis-3-mapper.dtd">
+<mapper namespace="com.aimi.mapper.DocumentChunkMapper">
+
+    <insert id="insertBatch">
+        INSERT INTO document_chunk
+        (knowledge_base_id, document_id, chunk_index, content, token_count, embedding, created_at, updated_at, deleted)
+        VALUES
+        <foreach collection="chunks" item="c" separator=",">
+            (#{c.knowledgeBaseId}, #{c.documentId}, #{c.chunkIndex}, #{c.content}, #{c.tokenCount},
+            #{c.embedding}::vector, CURRENT_TIMESTAMP, CURRENT_TIMESTAMP, FALSE)
+        </foreach>
+    </insert>
+
+    <delete id="deleteByDocumentId">
+        DELETE FROM document_chunk WHERE document_id = #{documentId}
+    </delete>
+</mapper>

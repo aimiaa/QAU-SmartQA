@@ -15,6 +15,10 @@ import org.springframework.transaction.annotation.Transactional;
 
 import java.util.List;
 
+/**
+ * 知识库管理服务实现：只负责知识库本身的增删查，
+ * 文档上传与解析已拆到 KnowledgeDocumentServiceImpl / KnowledgeDocumentParseServiceImpl。
+ */
 @Slf4j
 @Service
 @RequiredArgsConstructor
@@ -53,5 +57,10 @@ public class KnowledgeServiceImpl implements KnowledgeService {
         // 回查以拿到 DB 生成的 created_at / updated_at，避免返回值里时间显示"暂无更新"
         KnowledgeBaseEntity saved = knowledgeBaseMapper.selectById(entity.getId());
         return knowledgeBaseConverter.toVO(saved);
+    }
+
+    @Override
+    public void deleteKnowledgeBase(Long id) {
+        knowledgeBaseMapper.deleteById(id);
     }
 }

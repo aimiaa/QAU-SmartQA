@@ -9,6 +9,12 @@ spring:
   application:
     name: qau-app
 
+  # 文件上传大小限制（PDF/Word 动辄几十兆）
+  servlet:
+    multipart:
+      max-file-size: 50MB
+      max-request-size: 200MB
+
   # PostgreSQL
   datasource:
     url: jdbc:postgresql://${POSTGRES_HOST:localhost}:${POSTGRES_PORT:5433}/${POSTGRES_DB:qau_db}

@@ -3,8 +3,13 @@ package com.aimi.service;
 import com.aimi.dto.knowledge.KnowledgeBaseDTO;
 import com.aimi.dto.knowledge.KnowledgeBaseQueryDTO;
 import com.aimi.vo.knowledge.KnowledgeBaseVO;
+
 import java.util.List;
 
+/**
+ * 知识库管理服务：只保留知识库本身的增删查接口，
+ * 文档上传与解析见 KnowledgeDocumentService / KnowledgeDocumentParseService。
+ */
 public interface KnowledgeService {
 
     /**
@@ -22,4 +27,11 @@ public interface KnowledgeService {
      * @return 创建后的知识库 VO
      */
     KnowledgeBaseVO createKnowledgeBase(KnowledgeBaseDTO dto);
+
+    /**
+     * 删除知识库，逻辑删除。
+     *
+     * @param id 知识库 ID
+     */
+    void deleteKnowledgeBase(Long id);
 }
