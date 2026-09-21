@@ -24,4 +24,26 @@ public class EmbeddingService {
         }
         return model.embed(text);
     }
+
+    /**
+     * 向量化并序列化为 pgvector 字面量 "[v1,v2,...]"，用于 ::vector 相似度检索。
+     * 与文档写库时的向量格式保持一致。
+     */
+    public String embedToVectorLiteral(String text) {
+        return toVectorLiteral(embed(text));
+    }
+
+    private String toVectorLiteral(float[] vector) {
+        if (vector == null || vector.length == 0) {
+            return null;
+        }
+        StringBuilder sb = new StringBuilder(vector.length * 8).append('[');
+        for (int i = 0; i < vector.length; i++) {
+            if (i > 0) {
+                sb.append(',');
+            }
+            sb.append(vector[i]);
+        }
+        return sb.append(']').toString();
+    }
 }

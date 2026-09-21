@@ -17,6 +17,7 @@ import org.springframework.http.MediaType;
 import org.springframework.http.codec.ServerSentEvent;
 import org.springframework.web.bind.annotation.PostMapping;
 import org.springframework.web.bind.annotation.GetMapping;
+import org.springframework.web.bind.annotation.DeleteMapping;
 import org.springframework.web.bind.annotation.PathVariable;
 import org.springframework.web.bind.annotation.RequestMapping;
 import org.springframework.web.bind.annotation.RequestBody;
@@ -69,6 +70,18 @@ public class ChatController {
     @GetMapping("/sessions/{sessionId}/messages")
     public Result<List<ChatMessageVO>> listMessages(@PathVariable String sessionId) {
         return Result.success(chatConversationService.listMessages(sessionId));
+    }
+
+    /**
+     * 删除聊天会话（连同会话下的消息一并逻辑删除）
+     * @param sessionId 业务会话标识
+     * @return 空结果
+     */
+    @Operation(summary = "删除聊天会话")
+    @DeleteMapping("/sessions/{sessionId}")
+    public Result<Void> deleteSession(@PathVariable String sessionId) {
+        chatConversationService.deleteSession(sessionId);
+        return Result.success();
     }
 
     /**

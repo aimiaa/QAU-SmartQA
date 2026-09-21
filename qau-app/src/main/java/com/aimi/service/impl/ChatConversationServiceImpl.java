@@ -5,16 +5,21 @@ import com.aimi.dto.chat.CreateChatSessionDTO;
 import com.aimi.dto.chat.ChatRequestDTO;
 import com.aimi.entity.ChatMessageEntity;
 import com.aimi.entity.ChatSessionEntity;
+import com.aimi.entity.DocumentChunkMatch;
+import com.aimi.entity.KnowledgeBaseEntity;
 import com.aimi.exception.BusinessException;
 import com.aimi.exception.ErrorCode;
 import com.aimi.mapper.ChatMessageMapper;
 import com.aimi.mapper.ChatSessionMapper;
+import com.aimi.mapper.KnowledgeBaseMapper;
+import com.aimi.rag.RagChatService;
 import com.aimi.security.UserContext;
 import com.aimi.service.ChatConversationService;
 import com.aimi.vo.chat.ChatMessageVO;
 import com.aimi.vo.chat.ChatReplyVO;
 import com.aimi.vo.chat.ChatSessionVO;
 import com.baomidou.mybatisplus.core.conditions.query.LambdaQueryWrapper;
+import lombok.extern.slf4j.Slf4j;
 import org.springframework.http.codec.ServerSentEvent;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
@@ -26,7 +31,9 @@ import java.time.format.DateTimeFormatter;
 import java.util.List;
 import java.util.UUID;
 import java.util.concurrent.atomic.AtomicReference;
+import java.util.stream.Collectors;
 
+@Slf4j
 @Service
 public class ChatConversationServiceImpl implements ChatConversationService {
 
@@ -36,17 +43,26 @@ public class ChatConversationServiceImpl implements ChatConversationService {
     private static final DateTimeFormatter TIME_FORMATTER = DateTimeFormatter.ofPattern("HH:mm");
 
     private final AiChatService aiChatService;
+    private final RagChatService ragChatService;
+    private final KnowledgeRetrievalService knowledgeRetrievalService;
+    private final KnowledgeBaseMapper knowledgeBaseMapper;
     private final ChatSessionMapper chatSessionMapper;
     private final ChatMessageMapper chatMessageMapper;
     private final TransactionTemplate transactionTemplate;
 
     public ChatConversationServiceImpl(
             AiChatService aiChatService,
+            RagChatService ragChatService,
+            KnowledgeRetrievalService knowledgeRetrievalService,
+            KnowledgeBaseMapper knowledgeBaseMapper,
             ChatSessionMapper chatSessionMapper,
             ChatMessageMapper chatMessageMapper,
             TransactionTemplate transactionTemplate
     ) {
         this.aiChatService = aiChatService;
+        this.ragChatService = ragChatService;
+        this.knowledgeRetrievalService = knowledgeRetrievalService;
+        this.knowledgeBaseMapper = knowledgeBaseMapper;
         this.chatSessionMapper = chatSessionMapper;
         this.chatMessageMapper = chatMessageMapper;
         this.transactionTemplate = transactionTemplate;
@@ -64,7 +80,7 @@ public class ChatConversationServiceImpl implements ChatConversationService {
         ChatMessageEntity userMessage = createMessage(session.getId(), null, ROLE_USER, question, now);
         chatMessageMapper.insert(userMessage);
 
-        String answer = aiChatService.chat(question);
+        String answer = generateAnswer(question, request.knowledgeBaseIds());
         ChatMessageEntity assistantMessage = createMessage(session.getId(), userMessage.getId(), ROLE_ASSISTANT, answer, now);
         chatMessageMapper.insert(assistantMessage);
 
@@ -86,7 +102,7 @@ public class ChatConversationServiceImpl implements ChatConversationService {
 
         Flux<String> answerFlux;
         try {
-            answerFlux = aiChatService.chatStream(question);
+            answerFlux = generateAnswerStream(question, request.knowledgeBaseIds());
         } catch (IllegalStateException e) {
             answerFlux = Flux.just("已收到你的问题：" + question + "。当前后端 AI 模型尚未完成配置，联调阶段先返回这条兜底回复。");
         }
@@ -175,6 +191,27 @@ public class ChatConversationServiceImpl implements ChatConversationService {
                 .stream()
                 .map(this::toMessageVO)
                 .toList();
+    }
+
+    @Override
+    @Transactional
+    public void deleteSession(String sessionId) {
+        Long userId = UserContext.requireUserId();
+        ChatSessionEntity session = findOwnedSession(sessionId, userId);
+        if (session == null) {
+            throw new BusinessException(ErrorCode.SESSION_NOT_FOUND);
+        }
+
+        // 逻辑删除会话下的全部消息（@TableLogic 生效，实际为 UPDATE deleted = true）
+        chatMessageMapper.delete(
+                new LambdaQueryWrapper<ChatMessageEntity>()
+                        .eq(ChatMessageEntity::getSessionId, session.getId()));
+
+        // 逻辑删除会话本身
+        chatSessionMapper.deleteById(session.getId());
+
+        log.info("Chat session deleted, sessionId={}, dbId={}, userId={}",
+                sessionId, session.getId(), userId);
     }
 
     private ChatSessionEntity getOrCreateSession(String sessionId, String question, LocalDateTime now, Long userId) {
@@ -285,5 +322,42 @@ public class ChatConversationServiceImpl implements ChatConversationService {
         }
 
         return question.substring(0, 24) + "...";
+    }
+
+    /**
+     * RAG 同步问答：先按知识库范围做向量相似度检索，命中则带上下文作答，未命中走兜底模板。
+     */
+    private String generateAnswer(String question, List<Long> knowledgeBaseIds) {
+        List<DocumentChunkMatch> matches = knowledgeRetrievalService.retrieve(question, knowledgeBaseIds);
+        if (matches.isEmpty()) {
+            return ragChatService.answerWithoutContext(question, resolveKnowledgeBaseNames(knowledgeBaseIds));
+        }
+        String context = knowledgeRetrievalService.buildContext(matches);
+        return ragChatService.answerWithContext(question, context);
+    }
+
+    /**
+     * RAG 流式问答：检索逻辑与同步一致，生成阶段改为逐块推送。
+     */
+    private Flux<String> generateAnswerStream(String question, List<Long> knowledgeBaseIds) {
+        List<DocumentChunkMatch> matches = knowledgeRetrievalService.retrieve(question, knowledgeBaseIds);
+        if (matches.isEmpty()) {
+            return ragChatService.answerWithoutContextStream(question, resolveKnowledgeBaseNames(knowledgeBaseIds));
+        }
+        String context = knowledgeRetrievalService.buildContext(matches);
+        return ragChatService.answerWithContextStream(question, context);
+    }
+
+    /** 兜底模板需要展示已选择的知识库名称；未指定范围时提示为全部知识库。 */
+    private String resolveKnowledgeBaseNames(List<Long> knowledgeBaseIds) {
+        if (knowledgeBaseIds == null || knowledgeBaseIds.isEmpty()) {
+            return "全部知识库";
+        }
+        return knowledgeBaseMapper.selectList(
+                        new LambdaQueryWrapper<KnowledgeBaseEntity>()
+                                .in(KnowledgeBaseEntity::getId, knowledgeBaseIds))
+                .stream()
+                .map(KnowledgeBaseEntity::getName)
+                .collect(Collectors.joining("、"));
     }
 }

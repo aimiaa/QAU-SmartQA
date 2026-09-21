@@ -118,6 +118,41 @@ export const useCampusAssistant = () => {
     }
   };
 
+  const deleteSession = async (id: number) => {
+    const session = chatSessions.value.find((item) => item.id === id);
+
+    if (session?.sessionId) {
+      try {
+        await chatApi.deleteSession(session.sessionId);
+      } catch {
+        // 后端不可用时仍从本地列表移除，保证交互连续。
+      }
+    }
+
+    const index = chatSessions.value.findIndex((item) => item.id === id);
+    if (index >= 0) {
+      chatSessions.value.splice(index, 1);
+    }
+
+    if (activeSessionId.value !== id) return;
+
+    const next = chatSessions.value[0];
+    if (next) {
+      activeSessionId.value = next.id;
+      await loadSessionMessages(next);
+    } else {
+      activeSessionId.value = 0;
+      messages.value = [
+        {
+          id: Date.now(),
+          role: 'assistant',
+          content: '已删除当前会话，点击左上角新建对话继续提问。',
+          time: formatNow(),
+        },
+      ];
+    }
+  };
+
   const createSession = async () => {
     try {
       const session = await chatApi.createSession({
@@ -215,6 +250,7 @@ export const useCampusAssistant = () => {
     backToAssistant,
     chatSessions,
     createSession,
+    deleteSession,
     documentCount,
     input,
     isAnswering,

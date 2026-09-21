@@ -57,4 +57,11 @@ public interface ChatConversationService {
      * @return 消息视图列表；会话不存在或无权限时返回空列表
      */
     List<ChatMessageVO> listMessages(String sessionId);
+
+    /**
+     * 删除指定会话及其名下全部消息（逻辑删除，仅限会话归属人可操作）。
+     *
+     * @param sessionId 业务会话标识
+     */
+    void deleteSession(String sessionId);
 }

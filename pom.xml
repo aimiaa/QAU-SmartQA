@@ -41,9 +41,9 @@
         <spring-ai.version>2.0.1</spring-ai.version>
         <mybatis-plus.version>3.5.16</mybatis-plus.version>
         <springdoc.version>2.8.6</springdoc.version>
-        <aliyun-oss.version>3.18.1</aliyun-oss.version>
         <jjwt.version>0.12.6</jjwt.version>
         <tika.version>2.9.2</tika.version>
+        <aliyun-oss-v2.version>0.6.0</aliyun-oss-v2.version>
     </properties>
 
     <dependencyManagement>
@@ -85,10 +85,11 @@
                 <artifactId>springdoc-openapi-starter-webmvc-ui</artifactId>
                 <version>${springdoc.version}</version>
             </dependency>
+            <!-- Aliyun OSS SDK V2 -->
             <dependency>
-                <groupId>com.aliyun.oss</groupId>
-                <artifactId>aliyun-sdk-oss</artifactId>
-                <version>${aliyun-oss.version}</version>
+                <groupId>com.aliyun</groupId>
+                <artifactId>alibabacloud-oss-v2</artifactId>
+                <version>${aliyun-oss-v2.version}</version>
             </dependency>
             <!-- JWT - jjwt -->
             <dependency>

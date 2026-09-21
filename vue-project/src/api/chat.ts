@@ -54,6 +54,14 @@ export const chatApi = {
   },
 
   /**
+   * 删除指定会话及其消息记录。
+   * 作用：用户在对话历史中移除不再需要的会话。
+   */
+  async deleteSession(sessionId: string): Promise<void> {
+    await http.delete<void>(API_ENDPOINTS.deleteChatSession(sessionId));
+  },
+
+  /**
    * 提交用户问题并获取 AI 回复。
    * 作用：提交用户问题，并通过 X-Session-Id 请求头传递前端生成的业务会话标识。
    */

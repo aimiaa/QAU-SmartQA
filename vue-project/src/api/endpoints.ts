@@ -43,6 +43,9 @@ export const API_ENDPOINTS = {
   // 获取指定会话下的消息明细。
   chatMessages: (sessionId: number | string) => `/api/chat/sessions/${sessionId}/messages`,
 
+  // 删除指定会话（连同其消息记录）。
+  deleteChatSession: (sessionId: number | string) => `/api/chat/sessions/${sessionId}`,
+
   // 创建新的问答会话。
   createChatSession: '/api/chat/sessions',
 

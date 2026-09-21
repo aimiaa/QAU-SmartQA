@@ -65,10 +65,10 @@
             <artifactId>flyway-database-postgresql</artifactId>
         </dependency>
 
-        <!-- Aliyun OSS -->
+        <!-- Aliyun OSS SDK V2 -->
         <dependency>
-            <groupId>com.aliyun.oss</groupId>
-            <artifactId>aliyun-sdk-oss</artifactId>
+            <groupId>com.aliyun</groupId>
+            <artifactId>alibabacloud-oss-v2</artifactId>
         </dependency>
 
         <!-- 文档解析：Apache Tika（版本由根 pom 管理） -->

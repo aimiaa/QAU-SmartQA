@@ -15,6 +15,7 @@ const {
   backToAssistant,
   chatSessions,
   createSession,
+  deleteSession,
   documentCount,
   input,
   isAnswering,
@@ -101,6 +102,7 @@ const handleLogout = async () => {
             :answering="isAnswering"
             @select-session="selectSession"
             @create-session="createSession"
+            @delete-session="deleteSession"
             @update:input="input = $event"
             @submit="submitQuestion"
             @ask-quick="askQuickQuestion"
