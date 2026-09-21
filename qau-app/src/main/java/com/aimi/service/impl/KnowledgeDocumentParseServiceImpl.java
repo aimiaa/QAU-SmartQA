@@ -19,6 +19,7 @@ import org.springframework.ai.embedding.EmbeddingModel;
 import org.springframework.beans.factory.ObjectProvider;
 import org.springframework.scheduling.annotation.Async;
 import org.springframework.stereotype.Service;
+import org.springframework.transaction.annotation.Transactional;
 
 /**
  * Asynchronously parses uploaded documents, creates searchable chunks, and
@@ -52,8 +53,11 @@ public class KnowledgeDocumentParseServiceImpl implements KnowledgeDocumentParse
      */
     @Override
     @Async("knowledgeParseExecutor")
+    @Transactional
     public void parseAsync(Long documentId) {
-        KnowledgeDocumentEntity document = knowledgeDocumentMapper.selectById(documentId);
+        // Hold the document row lock for the whole parse transaction so deletion waits
+        // for parsing to finish and can remove all chunks without a stale async write.
+        KnowledgeDocumentEntity document = knowledgeDocumentMapper.selectActiveForUpdate(documentId);
         if (document == null) {
             log.warn("Document not found when parsing, documentId={}", documentId);
             return;

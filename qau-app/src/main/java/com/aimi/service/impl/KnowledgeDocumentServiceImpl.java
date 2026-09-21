@@ -7,6 +7,7 @@ import com.aimi.exception.BusinessException;
 import com.aimi.exception.ErrorCode;
 import com.aimi.mapper.KnowledgeBaseMapper;
 import com.aimi.mapper.KnowledgeDocumentMapper;
+import com.aimi.mapper.DocumentChunkMapper;
 import com.aimi.security.UserContext;
 import com.aimi.service.KnowledgeDocumentParseService;
 import com.aimi.service.KnowledgeDocumentService;
@@ -16,7 +17,9 @@ import java.io.IOException;
 import java.security.MessageDigest;
 import java.util.HexFormat;
 import java.util.Locale;
+import java.util.List;
 import java.util.Set;
+import com.baomidou.mybatisplus.core.conditions.query.LambdaQueryWrapper;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.stereotype.Service;
@@ -43,9 +46,24 @@ public class KnowledgeDocumentServiceImpl implements KnowledgeDocumentService {
 
     private final KnowledgeBaseMapper knowledgeBaseMapper;
     private final KnowledgeDocumentMapper knowledgeDocumentMapper;
+    private final DocumentChunkMapper documentChunkMapper;
     private final KnowledgeDocumentConverter knowledgeDocumentConverter;
     private final KnowledgeDocumentParseService knowledgeDocumentParseService;
     private final FileStorageService fileStorageService;
+
+    @Override
+    @Transactional(readOnly = true)
+    public List<KnowledgeDocumentVO> listDocuments(Long knowledgeBaseId) {
+        requireKnowledgeBase(knowledgeBaseId);
+        return knowledgeDocumentMapper.selectList(
+                        new LambdaQueryWrapper<KnowledgeDocumentEntity>()
+                                .eq(KnowledgeDocumentEntity::getKnowledgeBaseId, knowledgeBaseId)
+                                .orderByDesc(KnowledgeDocumentEntity::getUploadedAt)
+                                .orderByDesc(KnowledgeDocumentEntity::getId))
+                .stream()
+                .map(knowledgeDocumentConverter::toVO)
+                .toList();
+    }
 
     /**
      * 上传文档的同步部分：校验 -> 存文件 -> 落库 -> 知识库置 syncing 并原子加文档数 -> 事务提交后派发异步解析。
@@ -66,10 +84,7 @@ public class KnowledgeDocumentServiceImpl implements KnowledgeDocumentService {
             throw new BusinessException("仅支持上传 PDF / Word / Markdown / 纯文本文档");
         }
 
-        KnowledgeBaseEntity knowledgeBase = knowledgeBaseMapper.selectById(knowledgeBaseId);
-        if (knowledgeBase == null) {
-            throw new BusinessException(ErrorCode.KB_NOT_FOUND);
-        }
+        KnowledgeBaseEntity knowledgeBase = requireKnowledgeBase(knowledgeBaseId);
         if (STATUS_DISABLED.equals(knowledgeBase.getStatus())) {
             throw new BusinessException("知识库已停用，无法上传文档");
         }
@@ -114,6 +129,73 @@ public class KnowledgeDocumentServiceImpl implements KnowledgeDocumentService {
 
         // 回查拿 DB 默认时间戳（uploaded_at 等），与 createKnowledgeBase 的回查模式一致
         return knowledgeDocumentConverter.toVO(knowledgeDocumentMapper.selectById(documentId));
+    }
+
+    @Override
+    @Transactional
+    public void deleteDocument(Long knowledgeBaseId, Long documentId) {
+        requireKnowledgeBase(knowledgeBaseId);
+
+        // Match the parser's row lock so deletion cannot race with chunk writes.
+        KnowledgeDocumentEntity document = knowledgeDocumentMapper.selectActiveForUpdate(documentId);
+        if (document != null && !knowledgeBaseId.equals(document.getKnowledgeBaseId())) {
+            document = null;
+        }
+        if (document == null) {
+            throw new BusinessException("文档不存在或不属于当前知识库");
+        }
+
+        // Remove searchable chunks before logically deleting the document metadata.
+        documentChunkMapper.deleteByDocumentId(documentId);
+        if (knowledgeDocumentMapper.deleteById(documentId) > 0) {
+            knowledgeBaseMapper.decreaseDocumentCount(knowledgeBaseId);
+            refreshKnowledgeBaseStatus(knowledgeBaseId);
+            String storageUrl = document.getStorageUrl();
+            if (storageUrl != null && !storageUrl.isBlank()
+                    && TransactionSynchronizationManager.isSynchronizationActive()) {
+                TransactionSynchronizationManager.registerSynchronization(new TransactionSynchronization() {
+                    @Override
+                    public void afterCommit() {
+                        try {
+                            fileStorageService.delete(storageUrl);
+                        } catch (Exception e) {
+                            // Database deletion is already committed; retain an actionable cleanup log.
+                            log.error("Delete document storage object failed, documentId={}, storageUrl={}",
+                                    documentId, storageUrl, e);
+                        }
+                    }
+                });
+            }
+        }
+    }
+
+    private KnowledgeBaseEntity requireKnowledgeBase(Long knowledgeBaseId) {
+        KnowledgeBaseEntity knowledgeBase = knowledgeBaseMapper.selectById(knowledgeBaseId);
+        if (knowledgeBase == null || STATUS_DISABLED.equals(knowledgeBase.getStatus())) {
+            throw new BusinessException(ErrorCode.KB_NOT_FOUND);
+        }
+        return knowledgeBase;
+    }
+
+    private void refreshKnowledgeBaseStatus(Long knowledgeBaseId) {
+        if (knowledgeDocumentMapper.countActive(knowledgeBaseId) == 0) {
+            KnowledgeBaseEntity update = new KnowledgeBaseEntity();
+            update.setId(knowledgeBaseId);
+            update.setStatus("building");
+            update.setLastSyncedAt(java.time.LocalDateTime.now());
+            knowledgeBaseMapper.updateById(update);
+            return;
+        }
+
+        if (knowledgeDocumentMapper.countUnfinished(knowledgeBaseId) > 0) {
+            return;
+        }
+
+        KnowledgeBaseEntity update = new KnowledgeBaseEntity();
+        update.setId(knowledgeBaseId);
+        update.setStatus(knowledgeDocumentMapper.countFailed(knowledgeBaseId) > 0 ? "review" : "ready");
+        update.setLastSyncedAt(java.time.LocalDateTime.now());
+        knowledgeBaseMapper.updateById(update);
     }
 
     private String extensionOf(String fileName) {

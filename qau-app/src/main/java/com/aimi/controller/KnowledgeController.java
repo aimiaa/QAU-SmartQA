@@ -70,4 +70,17 @@ public class KnowledgeController {
                                                       @RequestPart("file") MultipartFile file) {
         return Result.success(knowledgeDocumentService.uploadDocument(id, file));
     }
+
+    @Operation(summary = "查询知识库文档")
+    @GetMapping("/{id}/documents")
+    public Result<List<KnowledgeDocumentVO>> listDocuments(@PathVariable Long id) {
+        return Result.success(knowledgeDocumentService.listDocuments(id));
+    }
+
+    @Operation(summary = "删除知识库文档")
+    @DeleteMapping("/{id}/documents/{documentId}")
+    public Result<Void> deleteDocument(@PathVariable Long id, @PathVariable Long documentId) {
+        knowledgeDocumentService.deleteDocument(id, documentId);
+        return Result.success();
+    }
 }

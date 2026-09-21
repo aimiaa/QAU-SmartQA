@@ -9,6 +9,7 @@ import {
   CloudUpload,
   Database,
   FileText,
+  FolderOpen,
   HardDrive,
   Plus,
   RefreshCw,
@@ -18,8 +19,9 @@ import {
 } from 'lucide-vue-next';
 import MetricCard from '../metrics/MetricCard.vue';
 import UploadKnowledgeDocumentDialog from './UploadKnowledgeDocumentDialog.vue';
+import KnowledgeDocumentPanel from './KnowledgeDocumentPanel.vue';
 import { useKnowledgeBases } from '../../composables/useKnowledgeBases';
-import type { KnowledgeBaseDraft, KnowledgeBaseStatus } from '../../types';
+import type { KnowledgeBase, KnowledgeBaseDraft, KnowledgeBaseStatus } from '../../types';
 
 interface DocumentUploadedPayload {
   knowledgeBaseId: number;
@@ -73,6 +75,8 @@ const formOpen = ref(false);
 const uploadDialogOpen = ref(false);
 const uploadTargetKnowledgeBaseId = ref<number | null>(null);
 const pendingDeleteId = ref<number | null>(null);
+const documentsOpen = ref(false);
+const documentsTarget = ref<KnowledgeBase | null>(null);
 
 const draft = reactive<KnowledgeBaseDraft>({
   name: '',
@@ -121,6 +125,25 @@ const openUploadDialog = (knowledgeBaseId?: number) => {
 const closeUploadDialog = () => {
   uploadDialogOpen.value = false;
   uploadTargetKnowledgeBaseId.value = null;
+};
+
+const openDocuments = (knowledgeBase: KnowledgeBase) => {
+  resetFeedback();
+  documentsTarget.value = knowledgeBase;
+  documentsOpen.value = true;
+};
+
+const closeDocuments = () => {
+  documentsOpen.value = false;
+  documentsTarget.value = null;
+};
+
+const handleDocumentDeleted = async () => {
+  notice.value = '文档已删除，知识库统计正在同步';
+  await loadKnowledgeBases(true);
+  if (documentsTarget.value) {
+    documentsTarget.value = knowledgeBases.value.find((item) => item.id === documentsTarget.value?.id) ?? null;
+  }
 };
 
 const submitDraft = async () => {
@@ -335,6 +358,10 @@ onMounted(() => {
           </div>
 
           <div v-else class="kb-card-actions">
+            <button class="ghost-button" type="button" @click="openDocuments(kb)">
+              <FolderOpen :size="16" />
+              <span>查看文档</span>
+            </button>
             <button class="ghost-button" type="button" @click="openUploadDialog(kb.id)">
               <CloudUpload :size="16" />
               <span>上传文档</span>
@@ -360,6 +387,14 @@ onMounted(() => {
       :loading-bases="loading"
       @close="closeUploadDialog"
       @uploaded="handleDocumentsUploaded"
+    />
+
+    <KnowledgeDocumentPanel
+      v-if="documentsOpen && documentsTarget"
+      :open="documentsOpen"
+      :knowledge-base="documentsTarget"
+      @close="closeDocuments"
+      @deleted="handleDocumentDeleted"
     />
   </section>
 </template>

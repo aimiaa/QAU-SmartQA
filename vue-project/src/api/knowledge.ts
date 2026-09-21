@@ -106,4 +106,14 @@ export const knowledgeApi = {
       },
     );
   },
+
+  /** Load the active documents currently stored in a knowledge base. */
+  async getDocuments(knowledgeBaseId: number): Promise<KnowledgeDocument[]> {
+    return http.get<KnowledgeDocument[]>(API_ENDPOINTS.knowledgeDocuments(knowledgeBaseId));
+  },
+
+  /** Delete one document and its searchable chunks from a knowledge base. */
+  async deleteDocument(knowledgeBaseId: number, documentId: number): Promise<void> {
+    return http.delete<void>(API_ENDPOINTS.knowledgeDocument(knowledgeBaseId, documentId));
+  },
 };

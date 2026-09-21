@@ -39,4 +39,8 @@ public interface KnowledgeBaseMapper extends BaseMapper<KnowledgeBaseEntity> {
             WHERE id = #{kbId} AND deleted = FALSE
             """)
     int markSyncingAndIncreaseDocumentCount(@Param("kbId") Long kbId);
+
+    /** Atomically decrease the denormalized document count after a document is deleted. */
+    @Update("UPDATE knowledge_base SET document_count = GREATEST(document_count - 1, 0) WHERE id = #{kbId} AND deleted = FALSE")
+    int decreaseDocumentCount(@Param("kbId") Long kbId);
 }

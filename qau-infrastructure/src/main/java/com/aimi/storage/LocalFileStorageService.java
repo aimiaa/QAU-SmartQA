@@ -63,4 +63,21 @@ public class LocalFileStorageService implements FileStorageService {
             throw new BusinessException("文件读取失败：" + e.getMessage(), e);
         }
     }
+
+    @Override
+    public void delete(String storageUrl) {
+        if (storageUrl == null || !storageUrl.startsWith(SCHEME)) {
+            throw new BusinessException("非法的存储地址：" + storageUrl);
+        }
+        String fileName = storageUrl.substring(SCHEME.length());
+        Path target = root.resolve(fileName).normalize();
+        if (!target.startsWith(root)) {
+            throw new BusinessException("非法的文件路径");
+        }
+        try {
+            Files.deleteIfExists(target);
+        } catch (IOException e) {
+            throw new BusinessException("文件删除失败：" + e.getMessage(), e);
+        }
+    }
 }

@@ -20,4 +20,7 @@ public interface FileStorageService {
      * @return 原始字节
      */
     byte[] retrieve(String storageUrl);
+
+    /** Delete the stored object after its document metadata has been removed. */
+    void delete(String storageUrl);
 }
