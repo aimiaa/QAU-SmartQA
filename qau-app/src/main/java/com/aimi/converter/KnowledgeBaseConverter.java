@@ -22,7 +22,7 @@ public class KnowledgeBaseConverter {
     private static final String EMPTY_UPDATED_AT = "暂无更新";
     // 与前端 useKnowledgeBases 中新建表单的兜底文案保持一致
     private static final String DEFAULT_CATEGORY = "未分类";
-    private static final String STATUS_READY = "ready";
+    private static final String STATUS_BUILDING = "building";
 
     /**
      * 新建 DTO 转实体：初始化创建场景的系统字段。
@@ -46,9 +46,9 @@ public class KnowledgeBaseConverter {
         entity.setDescription(
                 dto.description() == null || dto.description().isBlank() ? "" : dto.description().strip()
         );
-        // 新建时文档数为 0，状态直接置为 ready（DB 约束不允许 building）
+        // 新建时还没有文档，先展示为待上传；上传后解析链路会切到 syncing / ready / review。
         entity.setDocumentCount(0);
-        entity.setStatus(STATUS_READY);
+        entity.setStatus(STATUS_BUILDING);
         entity.setCreatedBy(userId);
         entity.setDeleted(false);
         return entity;

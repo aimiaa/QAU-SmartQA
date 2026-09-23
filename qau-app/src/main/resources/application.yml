@@ -100,9 +100,32 @@ app:
   knowledge:
     storage:
       type: oss
-  # RAG 向量检索参数
+    # 切片参数：语义分块目标长度与块间重叠（字符数）
+    chunk:
+      size: 800
+      overlap: 100
+  # RAG 检索参数
   rag:
-    # 每次召回的最相关切片数
+    # 最终返回给大模型的最相关切片数
     top-k: 5
-    # 余弦相似度阈值，低于该值的片段丢弃，避免弱相关内容污染答案
+    # 向量余弦相似度阈值，低于该值的片段丢弃
     min-similarity: 0.3
+    # 向量检索候选池（重排前多召回，重排后截断到 top-k）
+    vector-candidates: 20
+    # 检索前问题改写（多轮追问补全）
+    query-rewrite:
+      enabled: true
+      history-messages: 6
+    # 关键词检索（pg_trgm），与向量组成混合召回
+    keyword:
+      enabled: true
+      candidates: 20
+      min-similarity: 0.05
+    # 重排序（DashScope 文本排序模型，gte-rerank 已下线，默认 gte-rerank-v2）
+    rerank:
+      enabled: true
+      model: gte-rerank-v2
+      base-url: https://dashscope.aliyuncs.com/api/v1
+      api-key: ${DASHSCOPE_API_KEY:}
+      timeout-ms: 5000
+      min-score: 0.1

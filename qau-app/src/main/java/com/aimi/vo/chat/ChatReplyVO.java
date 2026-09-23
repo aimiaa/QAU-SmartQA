@@ -1,4 +1,6 @@
 package com.aimi.vo.chat;
 
-public record ChatReplyVO(String answer, String sessionId) {
+import java.util.List;
+
+public record ChatReplyVO(String answer, String sessionId, List<String> sources) {
 }

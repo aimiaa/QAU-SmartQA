@@ -27,4 +27,16 @@ public interface DocumentChunkMapper extends BaseMapper<DocumentChunkEntity> {
     List<DocumentChunkMatch> searchSimilarChunks(@Param("queryVector") String queryVector,
                                                  @Param("knowledgeBaseIds") List<Long> knowledgeBaseIds,
                                                  @Param("topK") int topK);
+
+    /**
+     * 关键词（pg_trgm 词相似度）检索，与向量检索组成混合召回，SQL 见 mapper/DocumentChunkMapper.xml。
+     *
+     * @param keyword          查询关键词（原始或改写后的问题）
+     * @param knowledgeBaseIds 限定检索的知识库范围，为空则全库检索
+     * @param topK             返回条数上限
+     * @return 按词相似度降序的切片列表
+     */
+    List<DocumentChunkMatch> searchByKeyword(@Param("keyword") String keyword,
+                                             @Param("knowledgeBaseIds") List<Long> knowledgeBaseIds,
+                                             @Param("topK") int topK);
 }

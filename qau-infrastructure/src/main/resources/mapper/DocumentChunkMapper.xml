@@ -17,32 +17,58 @@
         DELETE FROM document_chunk WHERE document_id = #{documentId}
     </delete>
 
-    <!--
-      向量相似度检索：pgvector 余弦距离操作符 <=>（0 表示方向完全相同），
-      相似度 = 1 - 余弦距离，取值 [-1,1]。命中 idx_document_chunk_embedding(HNSW, vector_cosine_ops)。
-      自定义 SQL 不套用 @TableLogic，deleted 条件显式书写；查询向量字面量用 ::vector 转换。
-      knowledgeBaseIds 为空时不加知识库过滤（全库检索）。
-    -->
-    <select id="searchSimilarChunks" resultType="com.aimi.entity.DocumentChunkMatch">
-        select
-            c.id,
-            c.knowledge_base_id,
-            c.document_id,
-            c.content,
-            d.title as document_title,
-            d.file_name,
-            1 - (c.embedding &lt;=&gt; #{queryVector}::vector) as similarity
-        from document_chunk c
-        join knowledge_document d on d.id = c.document_id and d.deleted = false
-        where c.deleted = false
-          and c.embedding is not null
+    <!-- 检索结果公共列：切片正文 + 来源文档信息。自定义 SQL 不套用 @TableLogic，deleted 条件显式书写。 -->
+    <sql id="matchColumns">
+        c.id,
+        c.knowledge_base_id,
+        c.document_id,
+        c.content,
+        d.title as document_title,
+        d.file_name
+    </sql>
+
+    <!-- 知识库范围过滤：knowledgeBaseIds 为空时不加过滤（全库检索）。 -->
+    <sql id="kbScopeFilter">
         <if test="knowledgeBaseIds != null and knowledgeBaseIds.size() > 0">
             and c.knowledge_base_id in
             <foreach collection="knowledgeBaseIds" item="kbId" open="(" separator="," close=")">
                 #{kbId}
             </foreach>
         </if>
+    </sql>
+
+    <!--
+      向量相似度检索：pgvector 余弦距离操作符 <=>（0 表示方向完全相同），
+      相似度 = 1 - 余弦距离，取值 [-1,1]。命中 idx_document_chunk_embedding(HNSW, vector_cosine_ops)。
+    -->
+    <select id="searchSimilarChunks" resultType="com.aimi.entity.DocumentChunkMatch">
+        select
+            <include refid="matchColumns"/>,
+            1 - (c.embedding &lt;=&gt; #{queryVector}::vector) as similarity
+        from document_chunk c
+        join knowledge_document d on d.id = c.document_id and d.deleted = false
+        where c.deleted = false
+          and c.embedding is not null
+          <include refid="kbScopeFilter"/>
         order by c.embedding &lt;=&gt; #{queryVector}::vector asc
+        limit #{topK}
+    </select>
+
+    <!--
+      关键词检索：pg_trgm 词相似度 word_similarity(query, content) 衡量查询与切片内最相似子串的接近程度，
+      配合 <% 操作符（word_similarity 阈值）与 ILIKE 子串命中，命中 idx_document_chunk_content_trgm(GIN, gin_trgm_ops)。
+      与向量检索并行召回后由上层做 RRF 融合，补足专有名词、编号、数字等精确匹配。
+    -->
+    <select id="searchByKeyword" resultType="com.aimi.entity.DocumentChunkMatch">
+        select
+            <include refid="matchColumns"/>,
+            word_similarity(#{keyword}, c.content) as similarity
+        from document_chunk c
+        join knowledge_document d on d.id = c.document_id and d.deleted = false
+        where c.deleted = false
+          and (#{keyword} &lt;% c.content or c.content ilike '%' || #{keyword} || '%')
+          <include refid="kbScopeFilter"/>
+        order by word_similarity(#{keyword}, c.content) desc
         limit #{topK}
     </select>
 </mapper>

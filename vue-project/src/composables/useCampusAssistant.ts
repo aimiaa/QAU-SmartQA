@@ -211,6 +211,16 @@ export const useCampusAssistant = () => {
           if (msg) {
             msg.content = fullAnswer;
           }
+        } else if (chunk.type === 'sources') {
+          try {
+            const parsed = JSON.parse(chunk.data) as string[];
+            const msg = messages.value.find((m) => m.id === assistantMsgId);
+            if (msg && parsed.length) {
+              msg.sources = parsed;
+            }
+          } catch {
+            // 来源解析失败不影响正文展示。
+          }
         }
       }
 

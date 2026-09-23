@@ -262,15 +262,22 @@ X-Session-Id: <session-id>
 
 ```text
 GET /api/knowledge-bases?keyword=&status=&category=
+POST /api/knowledge-bases
+DELETE /api/knowledge-bases/{id}
+POST /api/knowledge-bases/{id}/documents
+GET /api/knowledge-bases/{id}/documents
+DELETE /api/knowledge-bases/{id}/documents/{documentId}
 ```
 
 三个参数均可选：`keyword` 模糊匹配名称、分类、描述（PostgreSQL `ILIKE`，忽略大小写），`status` 与 `category`
 精确匹配，结果按更新时间倒序。返回字段与前端 `KnowledgeBase` 对齐，其中 `documents` 取自
 `knowledge_base.document_count`，`updatedAt` 直接下发 `MM-dd HH:mm` 展示文案；
-`status = disabled` 的记录不下发（前端状态枚举没有该值）。动态条件写在
+`status = disabled` 的记录不下发；`building` 表示知识库已创建但暂无文档，上传文档后会进入 `syncing`，解析完成后聚合为 `ready` 或 `review`。动态条件写在
 `qau-infrastructure/src/main/resources/mapper/KnowledgeBaseMapper.xml`。
 
-新建、删除、文档上传等接口前端已封装、后端尚未实现，调用会报错。
+文档上传接口使用 `multipart/form-data`，字段名为 `file`。后端会保存原始文件元数据，事务提交后异步解析、切片并生成向量；删除文档时会同步清理 `document_chunk`，并在事务提交后删除本地或 OSS 原始文件。删除知识库目前是逻辑删除知识库记录，文档级清理请使用文档删除接口。
+
+前端已预留但后端尚未实现的扩展接口包括：知识库基本信息更新、保存用户选中的知识库范围、手动触发知识库同步或重解析。
 
 ### API 文档
 

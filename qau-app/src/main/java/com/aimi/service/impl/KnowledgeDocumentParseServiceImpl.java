@@ -8,6 +8,7 @@ import com.aimi.file.DocumentParseService;
 import com.aimi.mapper.DocumentChunkMapper;
 import com.aimi.mapper.KnowledgeBaseMapper;
 import com.aimi.mapper.KnowledgeDocumentMapper;
+import com.aimi.rag.TextDocumentChunker;
 import com.aimi.service.KnowledgeDocumentParseService;
 import com.aimi.storage.FileStorageService;
 import java.time.LocalDateTime;
@@ -36,17 +37,13 @@ public class KnowledgeDocumentParseServiceImpl implements KnowledgeDocumentParse
     private static final String KB_READY = "ready";
     private static final String KB_REVIEW = "review";
 
-    /** Chunking defaults tuned for Chinese text and the configured embedding window. */
-    private static final int CHUNK_SIZE = 800;
-    private static final int CHUNK_OVERLAP = 100;
-
     private final KnowledgeDocumentMapper knowledgeDocumentMapper;
     private final KnowledgeBaseMapper knowledgeBaseMapper;
     private final DocumentChunkMapper documentChunkMapper;
     private final DocumentParseService documentParseService;
     private final FileStorageService fileStorageService;
     private final ObjectProvider<EmbeddingModel> embeddingModelProvider;
-
+    private final TextDocumentChunker textDocumentChunker;
     /**
      * 解析所需上下文全部通过参数传递：UserContext 是 ThreadLocal，
      * 在 kb-parse-* 线程里读不到，严禁在异步线程内取当前用户。
@@ -71,7 +68,7 @@ public class KnowledgeDocumentParseServiceImpl implements KnowledgeDocumentParse
             String text = documentParseService.extract(raw, document.getFileType());
 
             // 2. 切片
-            List<String> chunks = split(text);
+            List<String> chunks = textDocumentChunker.chunk(text);
             if (chunks.isEmpty()) {
                 throw new BusinessException("未能从文档中提取到有效文本");
             }
@@ -143,24 +140,6 @@ public class KnowledgeDocumentParseServiceImpl implements KnowledgeDocumentParse
         }
 
         documentChunkMapper.insertBatch(entities);
-    }
-
-    /** 定长滑窗切片，带重叠区避免语义在边界被切断。 */
-    private List<String> split(String text) {
-        String normalized = text == null ? "" : text.replace("\r\n", "\n").strip();
-        List<String> result = new ArrayList<>();
-        int step = CHUNK_SIZE - CHUNK_OVERLAP;
-        for (int start = 0; start < normalized.length(); start += step) {
-            int end = Math.min(start + CHUNK_SIZE, normalized.length());
-            String piece = normalized.substring(start, end).strip();
-            if (!piece.isEmpty()) {
-                result.add(piece);
-            }
-            if (end == normalized.length()) {
-                break;
-            }
-        }
-        return result;
     }
 
     /** float[] 序列化为 pgvector 字面量，如 "[0.1,0.2,...]"，配合 XML 中的 ::vector 转换。 */

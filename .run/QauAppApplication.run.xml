@@ -2,8 +2,9 @@
   <configuration default="false" name="QauAppApplication" type="SpringBootApplicationConfigurationType" factoryName="Spring Boot">
     <option name="FRAME_DEACTIVATION_UPDATE_POLICY" value="UnknownPolicyInFreeMode" />
     <module name="qau-app" />
-    <option name="SPRING_BOOT_MAIN_CLASS" value="com.aimi.QauAppApplication" />
     <shortenClasspath name="ARGS_FILE" />
+    <option name="SHORTEN_COMMAND_LINE" value="MANIFEST" />
+    <option name="SPRING_BOOT_MAIN_CLASS" value="com.aimi.QauAppApplication" />
     <extension name="coverage">
       <pattern>
         <option name="PATTERN" value="com.aimi.*" />

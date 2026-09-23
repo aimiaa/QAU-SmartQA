@@ -21,10 +21,11 @@ export interface SendChatMessagePayload {
 export interface SendChatMessageResult {
   answer: string;
   sessionId: string;
+  sources?: string[];
 }
 
 export interface StreamChunk {
-  type: 'chunk' | 'done';
+  type: 'chunk' | 'sources' | 'done';
   data: string;
 }
 
@@ -124,6 +125,8 @@ export const chatApi = {
             const data = line.slice(5).trim();
             if (currentEvent === 'message') {
               yield { type: 'chunk', data };
+            } else if (currentEvent === 'sources') {
+              yield { type: 'sources', data };
             } else if (currentEvent === 'done') {
               yield { type: 'done', data };
             }
