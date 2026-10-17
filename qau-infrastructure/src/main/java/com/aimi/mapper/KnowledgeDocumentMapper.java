@@ -5,9 +5,15 @@ import com.baomidou.mybatisplus.core.mapper.BaseMapper;
 import org.apache.ibatis.annotations.Mapper;
 import org.apache.ibatis.annotations.Param;
 import org.apache.ibatis.annotations.Select;
+import org.apache.ibatis.annotations.Update;
 
 @Mapper
 public interface KnowledgeDocumentMapper extends BaseMapper<KnowledgeDocumentEntity> {
+
+    @Update("UPDATE knowledge_document SET status = #{status}, parsed_at = #{parsedAt} WHERE id = #{documentId} AND deleted = FALSE")
+    int updateProcessingStatus(@Param("documentId") Long documentId,
+                               @Param("status") String status,
+                               @Param("parsedAt") java.time.LocalDateTime parsedAt);
 
     /** Lock an active document while its asynchronous parse task is processing it. */
     @Select("""

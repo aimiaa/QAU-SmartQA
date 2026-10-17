@@ -4,10 +4,12 @@ import java.util.concurrent.Executor;
 import org.springframework.context.annotation.Bean;
 import org.springframework.context.annotation.Configuration;
 import org.springframework.scheduling.annotation.EnableAsync;
+import org.springframework.scheduling.annotation.EnableScheduling;
 import org.springframework.scheduling.concurrent.ThreadPoolTaskExecutor;
 
 @Configuration
 @EnableAsync
+@EnableScheduling
 public class AsyncConfig {
 
     /** 文档解析专用线程池：解析/向量化是重任务，独立池避免拖垮 Web 线程。 */

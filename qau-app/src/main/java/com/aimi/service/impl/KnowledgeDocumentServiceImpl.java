@@ -8,8 +8,8 @@ import com.aimi.exception.ErrorCode;
 import com.aimi.mapper.KnowledgeBaseMapper;
 import com.aimi.mapper.KnowledgeDocumentMapper;
 import com.aimi.mapper.DocumentChunkMapper;
+import com.aimi.mapper.KnowledgeSyncJobMapper;
 import com.aimi.security.UserContext;
-import com.aimi.service.KnowledgeDocumentParseService;
 import com.aimi.service.KnowledgeDocumentService;
 import com.aimi.storage.FileStorageService;
 import com.aimi.vo.knowledge.KnowledgeDocumentVO;
@@ -24,12 +24,12 @@ import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
-import org.springframework.transaction.support.TransactionSynchronization;
 import org.springframework.transaction.support.TransactionSynchronizationManager;
+import org.springframework.transaction.support.TransactionSynchronization;
 import org.springframework.web.multipart.MultipartFile;
 
 /**
- * 文档专属服务实现：承载文档上传的同步链路（校验 -> 存文件 -> 落库 -> 派发异步解析），
+ * 文档专属服务实现：承载文档上传的同步链路（校验 -> 存文件 -> 落库 -> 写入持久化解析任务），
  * 与知识库管理接口（KnowledgeService）解耦。
  */
 @Slf4j
@@ -48,7 +48,7 @@ public class KnowledgeDocumentServiceImpl implements KnowledgeDocumentService {
     private final KnowledgeDocumentMapper knowledgeDocumentMapper;
     private final DocumentChunkMapper documentChunkMapper;
     private final KnowledgeDocumentConverter knowledgeDocumentConverter;
-    private final KnowledgeDocumentParseService knowledgeDocumentParseService;
+    private final KnowledgeSyncJobMapper knowledgeSyncJobMapper;
     private final FileStorageService fileStorageService;
 
     @Override
@@ -66,8 +66,8 @@ public class KnowledgeDocumentServiceImpl implements KnowledgeDocumentService {
     }
 
     /**
-     * 上传文档的同步部分：校验 -> 存文件 -> 落库 -> 知识库置 syncing 并原子加文档数 -> 事务提交后派发异步解析。
-     * 这里刻意不同步做解析：PDF/Word 解析加向量化耗时不可控，不能占住 HTTP 线程。
+     * 上传文档的同步部分：校验 -> 存文件 -> 落库 -> 写入 pending 任务。
+     * 解析由持久化任务调度器负责，不能依赖进程内回调或线程池队列。
      */
     @Override
     @Transactional
@@ -97,6 +97,7 @@ public class KnowledgeDocumentServiceImpl implements KnowledgeDocumentService {
         }
 
         String storageUrl = fileStorageService.store(content, fileType);
+        registerStorageRollbackCleanup(storageUrl);
 
         KnowledgeDocumentEntity document = new KnowledgeDocumentEntity();
         document.setKnowledgeBaseId(knowledgeBaseId);
@@ -112,23 +113,26 @@ public class KnowledgeDocumentServiceImpl implements KnowledgeDocumentService {
         document.setDeleted(false);
         knowledgeDocumentMapper.insert(document);
 
+        com.aimi.entity.KnowledgeSyncJobEntity job = new com.aimi.entity.KnowledgeSyncJobEntity();
+        job.setKnowledgeBaseId(knowledgeBaseId);
+        job.setDocumentId(document.getId());
+        job.setJobType("parse");
+        job.setStatus("pending");
+        job.setProgress(0);
+        job.setAttempts(0);
+        job.setMaxAttempts(5);
+        job.setNextRunAt(java.time.LocalDateTime.now());
+        job.setCreatedBy(userId);
+        knowledgeSyncJobMapper.insert(job);
+
         // 状态与计数在一条原子 UPDATE 里完成
         knowledgeBaseMapper.markSyncingAndIncreaseDocumentCount(knowledgeBaseId);
 
-        Long documentId = document.getId();
-        // 事务提交后再派发：异步线程是独立连接，读不到未提交的数据
-        TransactionSynchronizationManager.registerSynchronization(new TransactionSynchronization() {
-            @Override
-            public void afterCommit() {
-                knowledgeDocumentParseService.parseAsync(documentId);
-            }
-        });
-
         log.info("Document uploaded, kbId={}, documentId={}, fileName={}, size={}",
-                knowledgeBaseId, documentId, fileName, content.length);
+                knowledgeBaseId, document.getId(), fileName, content.length);
 
         // 回查拿 DB 默认时间戳（uploaded_at 等），与 createKnowledgeBase 的回查模式一致
-        return knowledgeDocumentConverter.toVO(knowledgeDocumentMapper.selectById(documentId));
+        return knowledgeDocumentConverter.toVO(knowledgeDocumentMapper.selectById(document.getId()));
     }
 
     @Override
@@ -147,6 +151,7 @@ public class KnowledgeDocumentServiceImpl implements KnowledgeDocumentService {
 
         // Remove searchable chunks before logically deleting the document metadata.
         documentChunkMapper.deleteByDocumentId(documentId);
+        knowledgeSyncJobMapper.cancelActiveByDocumentId(documentId);
         if (knowledgeDocumentMapper.deleteById(documentId) > 0) {
             knowledgeBaseMapper.decreaseDocumentCount(knowledgeBaseId);
             refreshKnowledgeBaseStatus(knowledgeBaseId);
@@ -167,6 +172,24 @@ public class KnowledgeDocumentServiceImpl implements KnowledgeDocumentService {
                 });
             }
         }
+    }
+
+    private void registerStorageRollbackCleanup(String storageUrl) {
+        if (!TransactionSynchronizationManager.isSynchronizationActive()) {
+            return;
+        }
+        TransactionSynchronizationManager.registerSynchronization(new org.springframework.transaction.support.TransactionSynchronization() {
+            @Override
+            public void afterCompletion(int status) {
+                if (status == STATUS_ROLLED_BACK) {
+                    try {
+                        fileStorageService.delete(storageUrl);
+                    } catch (Exception e) {
+                        log.error("Delete orphaned document storage after rollback failed, storageUrl={}", storageUrl, e);
+                    }
+                }
+            }
+        });
     }
 
     private KnowledgeBaseEntity requireKnowledgeBase(Long knowledgeBaseId) {

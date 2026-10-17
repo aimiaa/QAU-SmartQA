@@ -25,6 +25,20 @@ public class KnowledgeSyncJobEntity {
     private Integer progress;
     // 失败时的错误信息
     private String errorMessage;
+    // 已经被 worker 尝试执行的次数
+    private Integer attempts;
+    // 最大自动重试次数
+    private Integer maxAttempts;
+    // 下一次允许执行的时间
+    private LocalDateTime nextRunAt;
+    // worker 租约到期时间
+    private LocalDateTime leaseUntil;
+    // 当前持有租约的实例标识
+    private String workerId;
+    // 最近一次错误类型
+    private String lastErrorType;
+    // 最近一次错误详情
+    private String lastErrorMessage;
     // 任务开始时间
     private LocalDateTime startedAt;
     // 任务结束时间

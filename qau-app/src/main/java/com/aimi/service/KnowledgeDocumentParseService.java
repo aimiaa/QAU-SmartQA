@@ -1,5 +1,7 @@
 package com.aimi.service;
 
+import com.aimi.entity.KnowledgeSyncJobEntity;
+
 /**
  * 文档解析专属服务：负责 uploaded -> parsing -> vectorized / failed 的异步解析链路，
  * 与知识库管理接口（KnowledgeService）解耦。
@@ -12,5 +14,5 @@ public interface KnowledgeDocumentParseService {
      *
      * @param documentId 待解析文档 ID
      */
-    void parseAsync(Long documentId);
+    void parse(KnowledgeSyncJobEntity job);
 }

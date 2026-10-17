@@ -3,11 +3,13 @@ package com.aimi.service.impl;
 import com.aimi.entity.DocumentChunkEntity;
 import com.aimi.entity.KnowledgeBaseEntity;
 import com.aimi.entity.KnowledgeDocumentEntity;
+import com.aimi.entity.KnowledgeSyncJobEntity;
 import com.aimi.exception.BusinessException;
 import com.aimi.file.DocumentParseService;
 import com.aimi.mapper.DocumentChunkMapper;
 import com.aimi.mapper.KnowledgeBaseMapper;
 import com.aimi.mapper.KnowledgeDocumentMapper;
+import com.aimi.mapper.KnowledgeSyncJobMapper;
 import com.aimi.rag.TextDocumentChunker;
 import com.aimi.service.KnowledgeDocumentParseService;
 import com.aimi.storage.FileStorageService;
@@ -18,19 +20,17 @@ import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.ai.embedding.EmbeddingModel;
 import org.springframework.beans.factory.ObjectProvider;
-import org.springframework.scheduling.annotation.Async;
 import org.springframework.stereotype.Service;
-import org.springframework.transaction.annotation.Transactional;
+import org.springframework.transaction.PlatformTransactionManager;
+import org.springframework.transaction.support.TransactionTemplate;
 
-/**
- * Asynchronously parses uploaded documents, creates searchable chunks, and
- * updates document and knowledge-base states after each processing task.
- */
+/** Executes one already-claimed persistent parsing job. */
 @Slf4j
 @Service
 @RequiredArgsConstructor
 public class KnowledgeDocumentParseServiceImpl implements KnowledgeDocumentParseService {
 
+    private static final String DOC_UPLOADED = "uploaded";
     private static final String DOC_PARSING = "parsing";
     private static final String DOC_VECTORIZED = "vectorized";
     private static final String DOC_FAILED = "failed";
@@ -40,78 +40,65 @@ public class KnowledgeDocumentParseServiceImpl implements KnowledgeDocumentParse
     private final KnowledgeDocumentMapper knowledgeDocumentMapper;
     private final KnowledgeBaseMapper knowledgeBaseMapper;
     private final DocumentChunkMapper documentChunkMapper;
+    private final KnowledgeSyncJobMapper knowledgeSyncJobMapper;
     private final DocumentParseService documentParseService;
     private final FileStorageService fileStorageService;
     private final ObjectProvider<EmbeddingModel> embeddingModelProvider;
     private final TextDocumentChunker textDocumentChunker;
-    /**
-     * 解析所需上下文全部通过参数传递：UserContext 是 ThreadLocal，
-     * 在 kb-parse-* 线程里读不到，严禁在异步线程内取当前用户。
-     */
+    private final PlatformTransactionManager transactionManager;
+
+    /** The dispatcher owns the thread pool; this method itself is deliberately synchronous. */
     @Override
-    @Async("knowledgeParseExecutor")
-    @Transactional
-    public void parseAsync(Long documentId) {
-        // Hold the document row lock for the whole parse transaction so deletion waits
-        // for parsing to finish and can remove all chunks without a stale async write.
-        KnowledgeDocumentEntity document = knowledgeDocumentMapper.selectActiveForUpdate(documentId);
-        if (document == null) {
-            log.warn("Document not found when parsing, documentId={}", documentId);
+    public void parse(KnowledgeSyncJobEntity job) {
+        if (job == null || job.getDocumentId() == null || job.getWorkerId() == null) {
+            log.warn("Ignore malformed knowledge sync job: {}", job);
             return;
         }
+        Long documentId = job.getDocumentId();
+        KnowledgeDocumentEntity document = knowledgeDocumentMapper.selectById(documentId);
+        if (document == null || Boolean.TRUE.equals(document.getDeleted())) {
+            finishFailure(job, new BusinessException("文档不存在或已删除"), true);
+            return;
+        }
+
         Long kbId = document.getKnowledgeBaseId();
         try {
-            updateDocument(documentId, DOC_PARSING, null);
-
-            // 1. 取回原始文件并抽取文本
+            knowledgeDocumentMapper.updateProcessingStatus(documentId, DOC_PARSING, null);
             byte[] raw = fileStorageService.retrieve(document.getStorageUrl());
             String text = documentParseService.extract(raw, document.getFileType());
-
-            // 2. 切片
             List<String> chunks = textDocumentChunker.chunk(text);
             if (chunks.isEmpty()) {
                 throw new BusinessException("未能从文档中提取到有效文本");
             }
+            List<DocumentChunkEntity> entities = buildChunks(kbId, documentId, chunks);
 
-            // 3. 清理旧切片，保证同一文档重复解析幂等
-            documentChunkMapper.deleteByDocumentId(documentId);
-
-            // 4. 落切片；向量化失败只告警降级，文本切片照常保存，不阻断主流程
-            saveChunks(kbId, documentId, chunks);
-
-            updateDocument(documentId, DOC_VECTORIZED, LocalDateTime.now());
-            log.info("Document parsed, documentId={}, kbId={}, chunks={}", documentId, kbId, chunks.size());
+            // Only database writes are inside the transaction. File IO and model calls above
+            // must not hold a database connection or row lock for the duration of parsing.
+            new TransactionTemplate(transactionManager).executeWithoutResult(status -> {
+                KnowledgeDocumentEntity active = knowledgeDocumentMapper.selectActiveForUpdate(documentId);
+                if (active == null) {
+                    throw new BusinessException("文档已删除");
+                }
+                if (knowledgeSyncJobMapper.hasValidLease(job.getId(), job.getWorkerId()) == 0) {
+                    throw new IllegalStateException("任务租约已失效");
+                }
+                documentChunkMapper.deleteByDocumentId(documentId);
+                documentChunkMapper.insertBatch(entities);
+                knowledgeDocumentMapper.updateProcessingStatus(documentId, DOC_VECTORIZED, LocalDateTime.now());
+                if (knowledgeSyncJobMapper.markSuccess(job.getId(), job.getWorkerId()) == 0) {
+                    throw new IllegalStateException("任务租约已失效，未确认成功");
+                }
+            });
+            log.info("Document parsed, documentId={}, kbId={}, chunks={}", documentId, kbId, entities.size());
         } catch (Exception e) {
             log.error("Parse document failed, documentId={}, kbId={}", documentId, kbId, e);
-            updateDocument(documentId, DOC_FAILED, null);
+            finishFailure(job, e, isPermanent(e));
         } finally {
-            // 状态收口：无论成败都聚合刷新，避免个别文档失败把知识库永久卡在 syncing
             refreshKnowledgeBaseStatus(kbId);
         }
     }
 
-    /**
-     * 聚合判定知识库状态。并发上传多个文档时，先完成的任务因 unfinished > 0 不会误改状态，
-     * 最后完成的那个任务看到 unfinished = 0 将知识库推到 ready / review，天然无需加锁。
-     */
-    private void refreshKnowledgeBaseStatus(Long knowledgeBaseId) {
-        try {
-            if (knowledgeDocumentMapper.countUnfinished(knowledgeBaseId) > 0) {
-                return;
-            }
-            long failed = knowledgeDocumentMapper.countFailed(knowledgeBaseId);
-
-            KnowledgeBaseEntity update = new KnowledgeBaseEntity();
-            update.setId(knowledgeBaseId);
-            update.setStatus(failed > 0 ? KB_REVIEW : KB_READY);
-            update.setLastSyncedAt(LocalDateTime.now());
-            knowledgeBaseMapper.updateById(update);
-        } catch (Exception e) {
-            log.error("Refresh knowledge base status failed, kbId={}", knowledgeBaseId, e);
-        }
-    }
-
-    private void saveChunks(Long kbId, Long documentId, List<String> chunks) {
+    private List<DocumentChunkEntity> buildChunks(Long kbId, Long documentId, List<String> chunks) {
         List<DocumentChunkEntity> entities = new ArrayList<>(chunks.size());
         for (int i = 0; i < chunks.size(); i++) {
             DocumentChunkEntity chunk = new DocumentChunkEntity();
@@ -122,27 +109,75 @@ public class KnowledgeDocumentParseServiceImpl implements KnowledgeDocumentParse
             chunk.setTokenCount(chunks.get(i).length());
             entities.add(chunk);
         }
-
-        // Document parsing must still persist text chunks when embedding is disabled in tests or local setups.
         try {
-            EmbeddingModel embeddingModel = embeddingModelProvider.getIfAvailable();
-            if (embeddingModel == null) {
+            EmbeddingModel model = embeddingModelProvider.getIfAvailable();
+            if (model != null) {
+                List<float[]> vectors = model.embed(entities.stream().map(DocumentChunkEntity::getContent).toList());
+                for (int i = 0; i < entities.size(); i++) {
+                    entities.get(i).setEmbedding(toVectorLiteral(vectors.get(i)));
+                }
+            } else {
                 log.warn("Embedding model is not configured, keep plain chunks. documentId={}", documentId);
-                documentChunkMapper.insertBatch(entities);
-                return;
-            }
-            List<float[]> vectors = embeddingModel.embed(entities.stream().map(DocumentChunkEntity::getContent).toList());
-            for (int i = 0; i < entities.size(); i++) {
-                entities.get(i).setEmbedding(toVectorLiteral(vectors.get(i)));
             }
         } catch (Exception e) {
             log.warn("Embedding chunks failed, keep plain chunks. documentId={}", documentId, e);
         }
-
-        documentChunkMapper.insertBatch(entities);
+        return entities;
     }
 
-    /** float[] 序列化为 pgvector 字面量，如 "[0.1,0.2,...]"，配合 XML 中的 ::vector 转换。 */
+    private void finishFailure(KnowledgeSyncJobEntity job, Exception error, boolean permanent) {
+        int attempts = job.getAttempts() == null ? 1 : job.getAttempts();
+        int maxAttempts = job.getMaxAttempts() == null ? 5 : job.getMaxAttempts();
+        boolean terminal = permanent || attempts >= maxAttempts;
+        String status = terminal ? "dead" : "failed";
+        LocalDateTime nextRun = terminal ? null : LocalDateTime.now().plusMinutes(backoffMinutes(attempts));
+        String message = error.getMessage() == null ? error.getClass().getSimpleName() : error.getMessage();
+        int updated = knowledgeSyncJobMapper.markFailure(job.getId(), job.getWorkerId(), status, terminal, nextRun,
+                error.getClass().getSimpleName(), message);
+        if (updated == 0) {
+            return;
+        }
+        if (terminal && job.getDocumentId() != null) {
+            knowledgeDocumentMapper.updateProcessingStatus(job.getDocumentId(), DOC_FAILED, null);
+        } else if (!terminal && job.getDocumentId() != null) {
+            knowledgeDocumentMapper.updateProcessingStatus(job.getDocumentId(), DOC_UPLOADED, null);
+        }
+    }
+
+    private boolean isPermanent(Exception error) {
+        return error instanceof BusinessException
+                || error instanceof IllegalArgumentException
+                || error instanceof UnsupportedOperationException;
+    }
+
+    private long backoffMinutes(int attempts) {
+        return switch (Math.max(1, Math.min(attempts, 5))) {
+            case 1 -> 1;
+            case 2 -> 5;
+            case 3 -> 15;
+            case 4 -> 30;
+            default -> 60;
+        };
+    }
+
+    private void refreshKnowledgeBaseStatus(Long knowledgeBaseId) {
+        if (knowledgeBaseId == null) {
+            return;
+        }
+        try {
+            if (knowledgeDocumentMapper.countUnfinished(knowledgeBaseId) > 0) {
+                return;
+            }
+            KnowledgeBaseEntity update = new KnowledgeBaseEntity();
+            update.setId(knowledgeBaseId);
+            update.setStatus(knowledgeDocumentMapper.countFailed(knowledgeBaseId) > 0 ? KB_REVIEW : KB_READY);
+            update.setLastSyncedAt(LocalDateTime.now());
+            knowledgeBaseMapper.updateById(update);
+        } catch (Exception e) {
+            log.error("Refresh knowledge base status failed, kbId={}", knowledgeBaseId, e);
+        }
+    }
+
     private String toVectorLiteral(float[] vector) {
         if (vector == null || vector.length == 0) {
             return null;
@@ -155,13 +190,5 @@ public class KnowledgeDocumentParseServiceImpl implements KnowledgeDocumentParse
             sb.append(vector[i]);
         }
         return sb.append(']').toString();
-    }
-
-    private void updateDocument(Long documentId, String status, LocalDateTime parsedAt) {
-        KnowledgeDocumentEntity update = new KnowledgeDocumentEntity();
-        update.setId(documentId);
-        update.setStatus(status);
-        update.setParsedAt(parsedAt);
-        knowledgeDocumentMapper.updateById(update);
     }
 }
