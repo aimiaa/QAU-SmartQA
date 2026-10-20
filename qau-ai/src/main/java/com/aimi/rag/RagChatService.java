@@ -1,8 +1,10 @@
 package com.aimi.rag;
 
 import java.time.LocalDate;
+import java.util.List;
 import java.util.Map;
 import org.springframework.ai.chat.client.ChatClient;
+import org.springframework.ai.chat.messages.Message;
 import org.springframework.ai.chat.prompt.PromptTemplate;
 import org.springframework.beans.factory.ObjectProvider;
 import org.springframework.core.io.ClassPathResource;
@@ -38,35 +40,71 @@ public class RagChatService {
 
     /** 命中知识库片段时的同步作答。 */
     public String answerWithContext(String question, String context) {
-        return getChatClient().prompt()
-                .system(render(SYSTEM_WITH_CONTEXT, Map.of()))
+        return answerWithContext(question, context, List.of());
+    }
+
+    /** 命中知识库片段时的同步作答，支持受限的会话历史。 */
+    public String answerWithContext(String question, String context, List<Message> history) {
+        var prompt = getChatClient().prompt()
+                .system(render(SYSTEM_WITH_CONTEXT, Map.of()));
+        if (history != null && !history.isEmpty()) {
+            prompt = prompt.messages(history);
+        }
+        return prompt
                 .user(render(USER_WITH_CONTEXT, contextModel(question, context)))
                 .call()
                 .content();
     }
 
-    /** 命中知识库片段时的流式作答（SSE）。 */
+    /** 命中知识库片段时的流式作答。 */
     public Flux<String> answerWithContextStream(String question, String context) {
-        return getChatClient().prompt()
-                .system(render(SYSTEM_WITH_CONTEXT, Map.of()))
+        return answerWithContextStream(question, context, List.of());
+    }
+
+    /** 命中知识库片段时的流式作答，支持受限的会话历史。 */
+    public Flux<String> answerWithContextStream(String question, String context, List<Message> history) {
+        var prompt = getChatClient().prompt()
+                .system(render(SYSTEM_WITH_CONTEXT, Map.of()));
+        if (history != null && !history.isEmpty()) {
+            prompt = prompt.messages(history);
+        }
+        return prompt
                 .user(render(USER_WITH_CONTEXT, contextModel(question, context)))
                 .stream()
                 .content();
     }
 
-    /** 未召回任何片段时的兜底同步作答。 */
+    /** 未召回任何片段时的同步作答。 */
     public String answerWithoutContext(String question, String knowledgeBaseNames) {
-        return getChatClient().prompt()
-                .system(render(SYSTEM_NO_CONTEXT, Map.of()))
+        return answerWithoutContext(question, knowledgeBaseNames, List.of());
+    }
+
+    /** 未召回任何片段时的同步作答，支持受限的会话历史。 */
+    public String answerWithoutContext(String question, String knowledgeBaseNames, List<Message> history) {
+        var prompt = getChatClient().prompt()
+                .system(render(SYSTEM_NO_CONTEXT, Map.of()));
+        if (history != null && !history.isEmpty()) {
+            prompt = prompt.messages(history);
+        }
+        return prompt
                 .user(render(USER_NO_CONTEXT, noContextModel(question, knowledgeBaseNames)))
                 .call()
                 .content();
     }
 
-    /** 未召回任何片段时的兜底流式作答（SSE）。 */
+    /** 未召回任何片段时的流式作答。 */
     public Flux<String> answerWithoutContextStream(String question, String knowledgeBaseNames) {
-        return getChatClient().prompt()
-                .system(render(SYSTEM_NO_CONTEXT, Map.of()))
+        return answerWithoutContextStream(question, knowledgeBaseNames, List.of());
+    }
+
+    /** 未召回任何片段时的流式作答，支持受限的会话历史。 */
+    public Flux<String> answerWithoutContextStream(String question, String knowledgeBaseNames, List<Message> history) {
+        var prompt = getChatClient().prompt()
+                .system(render(SYSTEM_NO_CONTEXT, Map.of()));
+        if (history != null && !history.isEmpty()) {
+            prompt = prompt.messages(history);
+        }
+        return prompt
                 .user(render(USER_NO_CONTEXT, noContextModel(question, knowledgeBaseNames)))
                 .stream()
                 .content();

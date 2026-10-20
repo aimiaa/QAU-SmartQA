@@ -24,6 +24,9 @@ import com.baomidou.mybatisplus.core.conditions.query.LambdaQueryWrapper;
 import tools.jackson.databind.ObjectMapper;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.beans.factory.annotation.Value;
+import org.springframework.ai.chat.messages.AssistantMessage;
+import org.springframework.ai.chat.messages.Message;
+import org.springframework.ai.chat.messages.UserMessage;
 import org.springframework.http.codec.ServerSentEvent;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
@@ -35,7 +38,6 @@ import java.math.RoundingMode;
 import java.time.LocalDateTime;
 import java.time.format.DateTimeFormatter;
 import java.util.ArrayList;
-import java.util.Collections;
 import java.util.LinkedHashMap;
 import java.util.LinkedHashSet;
 import java.util.List;
@@ -73,6 +75,18 @@ public class ChatConversationServiceImpl implements ChatConversationService {
     @Value("${app.rag.query-rewrite.history-messages:6}")
     private int historyMessages;
 
+    /** 最终回答是否启用会话记忆。 */
+    @Value("${app.rag.history.enabled:true}")
+    private boolean historyEnabled;
+
+    /** 最终回答最多携带的历史消息条数。 */
+    @Value("${app.rag.history.max-messages:10}")
+    private int maxHistoryMessages;
+
+    /** 最终回答历史的字符预算，避免长回答挤占本轮问题和 RAG 上下文。 */
+    @Value("${app.rag.history.max-chars:12000}")
+    private int maxHistoryChars;
+
     public ChatConversationServiceImpl(
             AiChatService aiChatService,
             RagChatService ragChatService,
@@ -104,7 +118,8 @@ public class ChatConversationServiceImpl implements ChatConversationService {
         LocalDateTime now = LocalDateTime.now();
 
         ChatSessionEntity session = getOrCreateSession(sessionId, question, now, userId);
-        String history = buildHistory(session.getId());
+        List<Message> historyMessagesForAnswer = loadHistoryMessages(session.getId());
+        String history = formatHistoryForRewrite(historyMessagesForAnswer);
 
         ChatMessageEntity userMessage = createMessage(session.getId(), null, ROLE_USER, question, now);
         chatMessageMapper.insert(userMessage);
@@ -114,9 +129,11 @@ public class ChatConversationServiceImpl implements ChatConversationService {
 
         String answer;
         if (matches.isEmpty()) {
-            answer = ragChatService.answerWithoutContext(question, resolveKnowledgeBaseNames(request.knowledgeBaseIds()));
+            answer = ragChatService.answerWithoutContext(
+                    question, resolveKnowledgeBaseNames(request.knowledgeBaseIds()), historyMessagesForAnswer);
         } else {
-            answer = ragChatService.answerWithContext(question, knowledgeRetrievalService.buildContext(matches));
+            answer = ragChatService.answerWithContext(
+                    question, knowledgeRetrievalService.buildContext(matches), historyMessagesForAnswer);
         }
 
         ChatMessageEntity assistantMessage = createMessage(session.getId(), userMessage.getId(), ROLE_ASSISTANT, answer, now);
@@ -135,7 +152,8 @@ public class ChatConversationServiceImpl implements ChatConversationService {
 
         ChatSessionEntity session = transactionTemplate.execute(status ->
                 getOrCreateSession(sessionId, question, now, userId));
-        String history = buildHistory(session.getId());
+        List<Message> historyMessagesForAnswer = loadHistoryMessages(session.getId());
+        String history = formatHistoryForRewrite(historyMessagesForAnswer);
 
         ChatMessageEntity userMessage = createMessage(session.getId(), null, ROLE_USER, question, now);
         transactionTemplate.executeWithoutResult(status ->
@@ -148,9 +166,11 @@ public class ChatConversationServiceImpl implements ChatConversationService {
         Flux<String> answerFlux;
         try {
             if (matches.isEmpty()) {
-                answerFlux = ragChatService.answerWithoutContextStream(question, resolveKnowledgeBaseNames(request.knowledgeBaseIds()));
+                answerFlux = ragChatService.answerWithoutContextStream(
+                        question, resolveKnowledgeBaseNames(request.knowledgeBaseIds()), historyMessagesForAnswer);
             } else {
-                answerFlux = ragChatService.answerWithContextStream(question, knowledgeRetrievalService.buildContext(matches));
+                answerFlux = ragChatService.answerWithContextStream(
+                        question, knowledgeRetrievalService.buildContext(matches), historyMessagesForAnswer);
             }
         } catch (IllegalStateException e) {
             answerFlux = Flux.just("已收到你的问题：" + question + "。当前后端 AI 模型尚未完成配置，联调阶段先返回这条兜底回复。");
@@ -392,24 +412,66 @@ public class ChatConversationServiceImpl implements ChatConversationService {
         }
     }
 
-    /** 组装问题改写所需的多轮历史（按时间正序的“用户：/助手：”文本），需在写入本轮用户消息前调用。 */
-    private String buildHistory(Long sessionId) {
-        if (!queryRewriteEnabled || sessionId == null || historyMessages <= 0) {
-            return "";
+    /** 加载本轮之前已完成的会话消息，并施加条数和字符预算。 */
+    private List<Message> loadHistoryMessages(Long sessionId) {
+        if (!historyEnabled || sessionId == null || maxHistoryMessages <= 0) {
+            return List.of();
         }
         List<ChatMessageEntity> recent = chatMessageMapper.selectList(
                 new LambdaQueryWrapper<ChatMessageEntity>()
                         .eq(ChatMessageEntity::getSessionId, sessionId)
                         .orderByDesc(ChatMessageEntity::getCreatedAt)
-                        .last("LIMIT " + historyMessages));
+                        .orderByDesc(ChatMessageEntity::getId)
+                        .last("LIMIT " + maxHistoryMessages));
         if (recent.isEmpty()) {
-            return "";
+            return List.of();
         }
         List<ChatMessageEntity> ordered = new ArrayList<>(recent);
-        Collections.reverse(ordered);
-        return ordered.stream()
-                .map(m -> (ROLE_USER.equals(m.getRole()) ? "用户：" : "助手：") + m.getContent())
+        List<Message> result = new ArrayList<>();
+        int usedChars = 0;
+        for (ChatMessageEntity message : ordered) {
+            if (message.getContent() == null || message.getContent().isBlank()) {
+                continue;
+            }
+            Message converted = toAiMessage(message);
+            if (converted == null) {
+                continue;
+            }
+            int messageChars = message.getContent().length();
+            if (maxHistoryChars > 0 && !result.isEmpty() && usedChars + messageChars > maxHistoryChars) {
+                continue;
+            }
+            result.add(0, converted);
+            usedChars += messageChars;
+        }
+        return result;
+    }
+
+    /** 组装查询改写所需的历史；助手回答截断，避免改写请求过大。 */
+    private String formatHistoryForRewrite(List<Message> history) {
+        if (!queryRewriteEnabled || history == null || history.isEmpty() || historyMessages <= 0) {
+            return "";
+        }
+        return history.stream()
+                .limit(historyMessages)
+                .map(message -> {
+                    String content = message.getText();
+                    if (message instanceof AssistantMessage && content.length() > EXCERPT_MAX_LENGTH) {
+                        content = content.substring(0, EXCERPT_MAX_LENGTH) + "...";
+                    }
+                    return (message instanceof UserMessage ? "用户：" : "助手：") + content;
+                })
                 .collect(Collectors.joining("\n"));
+    }
+
+    private Message toAiMessage(ChatMessageEntity message) {
+        if (ROLE_USER.equals(message.getRole())) {
+            return new UserMessage(message.getContent());
+        }
+        if (ROLE_ASSISTANT.equals(message.getRole())) {
+            return new AssistantMessage(message.getContent());
+        }
+        return null;
     }
 
     /** 把本轮命中的切片作为来源落库，供历史消息与前端来源标签展示。 */

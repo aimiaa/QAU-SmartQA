@@ -116,6 +116,11 @@ app:
     query-rewrite:
       enabled: true
       history-messages: 6
+    # 会话短期记忆：历史消息会同时用于追问改写和最终回答
+    history:
+      enabled: true
+      max-messages: 10
+      max-chars: 12000
     # 关键词检索（pg_trgm），与向量组成混合召回
     keyword:
       enabled: true
@@ -129,3 +134,7 @@ app:
       api-key: ${DASHSCOPE_API_KEY:}
       timeout-ms: 5000
       min-score: 0.1
+    # RAG 离线评估
+    eval:
+      # 是否叠加 LLM-as-judge 生成质量打分（有额外模型调用成本，仅调完参数想看生成质量时开启）
+      judge-enabled: false
