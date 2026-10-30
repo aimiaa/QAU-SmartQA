@@ -21,6 +21,7 @@ import com.aimi.vo.chat.ChatMessageVO;
 import com.aimi.vo.chat.ChatReplyVO;
 import com.aimi.vo.chat.ChatSessionVO;
 import com.baomidou.mybatisplus.core.conditions.query.LambdaQueryWrapper;
+import com.baomidou.mybatisplus.core.conditions.update.LambdaUpdateWrapper;
 import tools.jackson.databind.ObjectMapper;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.beans.factory.annotation.Value;
@@ -43,6 +44,7 @@ import java.util.LinkedHashSet;
 import java.util.List;
 import java.util.Map;
 import java.util.UUID;
+import java.util.concurrent.atomic.AtomicBoolean;
 import java.util.concurrent.atomic.AtomicReference;
 import java.util.stream.Collectors;
 
@@ -110,19 +112,24 @@ public class ChatConversationServiceImpl implements ChatConversationService {
     }
 
     @Override
-    @Transactional
     public ChatReplyVO chat(String clientSessionId, ChatRequestDTO request) {
         Long userId = UserContext.requireUserId();
         String sessionId = normalizeSessionId(clientSessionId);
         String question = request.question().strip();
         LocalDateTime now = LocalDateTime.now();
 
-        ChatSessionEntity session = getOrCreateSession(sessionId, question, now, userId);
+        // 短事务 1：建/取会话并落库用户消息。模型调用一律放在事务外，避免长事务占死数据库连接。
+        SessionAndUserMessage opened = transactionTemplate.execute(status -> {
+            ChatSessionEntity session = getOrCreateSession(sessionId, question, now, userId);
+            ChatMessageEntity userMessage = createMessage(session.getId(), null, ROLE_USER, question, now);
+            chatMessageMapper.insert(userMessage);
+            return new SessionAndUserMessage(session, userMessage);
+        });
+        ChatSessionEntity session = opened.session();
+        ChatMessageEntity userMessage = opened.userMessage();
+
         List<Message> historyMessagesForAnswer = loadHistoryMessages(session.getId());
         String history = formatHistoryForRewrite(historyMessagesForAnswer);
-
-        ChatMessageEntity userMessage = createMessage(session.getId(), null, ROLE_USER, question, now);
-        chatMessageMapper.insert(userMessage);
 
         List<DocumentChunkMatch> matches =
                 knowledgeRetrievalService.retrieve(effectiveQuery(question, history), request.knowledgeBaseIds());
@@ -136,13 +143,19 @@ public class ChatConversationServiceImpl implements ChatConversationService {
                     question, knowledgeRetrievalService.buildContext(matches), historyMessagesForAnswer);
         }
 
-        ChatMessageEntity assistantMessage = createMessage(session.getId(), userMessage.getId(), ROLE_ASSISTANT, answer, now);
-        chatMessageMapper.insert(assistantMessage);
-        saveSources(assistantMessage.getId(), matches);
-
-        updateSession(session, question, now);
+        // 短事务 2：落库助手回答、来源并更新会话
+        transactionTemplate.executeWithoutResult(status -> {
+            ChatMessageEntity assistantMessage = createMessage(
+                    session.getId(), userMessage.getId(), ROLE_ASSISTANT, answer, LocalDateTime.now());
+            chatMessageMapper.insert(assistantMessage);
+            saveSources(assistantMessage.getId(), matches);
+            updateSession(session, question, LocalDateTime.now());
+        });
         return new ChatReplyVO(answer, sessionId, distinctSourceTitles(matches));
     }
+
+    /** 同一短事务内产生的会话与用户消息。 */
+    private record SessionAndUserMessage(ChatSessionEntity session, ChatMessageEntity userMessage) {}
 
     @Override
     public Flux<ServerSentEvent<String>> chatStream(String clientSessionId, ChatRequestDTO request, Long userId) {
@@ -177,6 +190,7 @@ public class ChatConversationServiceImpl implements ChatConversationService {
         }
 
         AtomicReference<StringBuilder> fullAnswer = new AtomicReference<>(new StringBuilder());
+        AtomicBoolean answerSaved = new AtomicBoolean(false);
 
         return answerFlux
                 .map(chunk -> {
@@ -193,15 +207,52 @@ public class ChatConversationServiceImpl implements ChatConversationService {
                                 .data("[DONE]")
                                 .build()
                 ))
-                .doOnComplete(() -> transactionTemplate.executeWithoutResult(status -> {
-                    String answer = fullAnswer.get().toString();
-                    LocalDateTime completedAt = LocalDateTime.now();
-                    ChatMessageEntity assistantMessage = createMessage(
-                            session.getId(), userMessage.getId(), ROLE_ASSISTANT, answer, completedAt);
-                    chatMessageMapper.insert(assistantMessage);
+                .doOnComplete(() -> saveAssistantAnswer(
+                        session, userMessage, matches, question, fullAnswer.get().toString(), answerSaved))
+                // 模型流中途报错：落库已生成的部分回答，并显式向前端发 error 事件，避免流静默挂断
+                .onErrorResume(e -> {
+                    log.error("Stream answer failed, persist partial answer. sessionId={}", sessionId, e);
+                    saveAssistantAnswer(
+                            session, userMessage, matches, question, fullAnswer.get().toString(), answerSaved);
+                    return Flux.just(ServerSentEvent.<String>builder()
+                            .event("error")
+                            .data("回答生成失败，请稍后重试")
+                            .build());
+                })
+                // 客户端中途断开（SSE 取消）：落库已生成的部分回答，保证历史消息问答完整
+                .doOnCancel(() -> {
+                    log.info("SSE stream cancelled by client, persist partial answer. sessionId={}", sessionId);
+                    saveAssistantAnswer(
+                            session, userMessage, matches, question, fullAnswer.get().toString(), answerSaved);
+                });
+    }
+
+    /**
+     * 落库助手回答（正常完成或中断时的部分内容）。answerSaved 保证完成/异常/取消三条路径只落库一次；
+     * 未产生任何内容时写入占位说明，避免历史出现"只有问没有答"的脏数据。
+     */
+    private void saveAssistantAnswer(ChatSessionEntity session, ChatMessageEntity userMessage,
+                                     List<DocumentChunkMatch> matches, String question,
+                                     String answer, AtomicBoolean answerSaved) {
+        if (!answerSaved.compareAndSet(false, true)) {
+            return;
+        }
+        try {
+            transactionTemplate.executeWithoutResult(status -> {
+                String content = answer == null || answer.isBlank()
+                        ? "（回答生成中断，未产生内容）"
+                        : answer;
+                ChatMessageEntity assistantMessage = createMessage(
+                        session.getId(), userMessage.getId(), ROLE_ASSISTANT, content, LocalDateTime.now());
+                chatMessageMapper.insert(assistantMessage);
+                if (answer != null && !answer.isBlank()) {
                     saveSources(assistantMessage.getId(), matches);
-                    updateSession(session, question, completedAt);
-                }));
+                }
+                updateSession(session, question, LocalDateTime.now());
+            });
+        } catch (Exception e) {
+            log.error("Persist assistant answer failed. sessionId={}", session.getSessionId(), e);
+        }
     }
 
     @Override
@@ -369,17 +420,27 @@ public class ChatConversationServiceImpl implements ChatConversationService {
         return message;
     }
 
+    /**
+     * 更新会话：message_count 用 SQL 原子自增（+2 = 一问一答），避免并发提问时"读-改-写"互相覆盖；
+     * 时间戳与标题在同一条 UPDATE 内一并刷新。
+     */
     private void updateSession(ChatSessionEntity session, String question, LocalDateTime now) {
-        Integer currentCount = session.getMessageCount() == null ? 0 : session.getMessageCount();
-        session.setMessageCount(currentCount + 2);
-        session.setLastMessageAt(now);
-        session.setUpdatedAt(now);
+        LambdaUpdateWrapper<ChatSessionEntity> wrapper = new LambdaUpdateWrapper<ChatSessionEntity>()
+                .eq(ChatSessionEntity::getId, session.getId())
+                .setSql("message_count = coalesce(message_count, 0) + 2")
+                .set(ChatSessionEntity::getLastMessageAt, now)
+                .set(ChatSessionEntity::getUpdatedAt, now);
 
         if (session.getTitle() == null || session.getTitle().isBlank() || "新对话".equals(session.getTitle())) {
-            session.setTitle(buildTitle(question));
+            wrapper.set(ChatSessionEntity::getTitle, buildTitle(question));
         }
 
-        chatSessionMapper.updateById(session);
+        chatSessionMapper.update(null, wrapper);
+
+        // 同步内存对象，保持本次请求内的视图一致（真实计数以数据库为准）
+        session.setMessageCount((session.getMessageCount() == null ? 0 : session.getMessageCount()) + 2);
+        session.setLastMessageAt(now);
+        session.setUpdatedAt(now);
     }
 
     private String normalizeSessionId(String sessionId) {
